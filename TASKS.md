@@ -1,0 +1,4 @@
+- [x] Implement initial leader election as pure state machine
+- [ ] Leader re-election on leader failure
+- [ ] Simple TUI for starting and interacting with clusters
+- [ ] Write initial property test
