@@ -3,7 +3,7 @@ package liferaft
 import (
 	"encoding/gob"
 	"log"
-	"log/slog"
+	"math/rand"
 	"net"
 	"net/rpc"
 	"time"
@@ -34,9 +34,10 @@ func StartEphemeralNode(client Client, selfAddr string, otherAddrs []string) *Ep
 
 	n := &EphemeralRPCNode{
 		raft: *NewRaft(&RaftConfig{
-			ID:      id,
-			Client:  client,
-			Cluster: cluster,
+			ID:                  id,
+			Client:              client,
+			Cluster:             cluster,
+			ElectionTimeoutTick: uint(8 + rand.Intn(6)),
 		}),
 		nodes:    make(map[NodeID]*node),
 		stop:     make(chan struct{}),
@@ -93,7 +94,11 @@ func (n *EphemeralRPCNode) sendRPC(msg *Message) {
 	}
 
 	if err != nil {
-		slog.Warn("failed to send message to node", "msg", msg, "error", err)
+		// slog.Warn("failed to send message to node", "msg", msg, "error", err)
+		if client.rpcClient != nil {
+			client.rpcClient.Close()
+			client.rpcClient = nil
+		}
 	}
 }
 

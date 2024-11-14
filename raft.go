@@ -59,9 +59,11 @@ type Raft struct {
 }
 
 type RaftConfig struct {
-	ID      NodeID
-	Client  Client
-	Cluster []NodeID // must contain self as well
+	ID                  NodeID
+	Client              Client
+	Cluster             []NodeID // must contain self as well
+	HeartBeatTick       uint
+	ElectionTimeoutTick uint
 }
 
 func NewRaft(config *RaftConfig) *Raft {
@@ -75,9 +77,11 @@ func NewRaft(config *RaftConfig) *Raft {
 		heartBeatTick:       1,
 		electionTimeoutTick: 10,
 	}
-	raft.members[raft.id] = &Member{
-		nextIndex:  1,
-		matchIndex: 0,
+	if config.HeartBeatTick > 0 {
+		raft.heartBeatTick = config.HeartBeatTick
+	}
+	if config.ElectionTimeoutTick > 0 {
+		raft.electionTimeoutTick = config.ElectionTimeoutTick
 	}
 	for _, id := range config.Cluster {
 		raft.members[id] = &Member{
@@ -111,13 +115,11 @@ func (t *Tick) isRaftEvent()    {}
 func (m *Message) isRaftEvent() {}
 
 type RequestVote struct {
-	Term         Term
 	LastLogIndex uint64
 	LastLogTerm  Term
 }
 
 type RequestVoteResponse struct {
-	Term        Term
 	VoteGranted bool
 }
 
@@ -152,8 +154,12 @@ func (s *Raft) HandleEvent(event Event) Updates {
 			Log:         s.log,
 			VotedFor:    s.members[s.id].votedFor,
 		}
-		// TODO: if message term > currentTerm, update currentTerm
+		// If message term > currentTerm, update currentTerm
 		// and convert to follower before responding
+		if event.Term > s.currentTerm {
+			s.updateTerm(event.Term)
+			s.role = Follower
+		}
 		switch rpc := event.Contents.(type) {
 		case *RequestVote:
 			ms = s.handleRequestVote(event, rpc)
@@ -178,7 +184,6 @@ func (s *Raft) startElection() (ms []*Message) {
 	ms = append(ms, s.gotVote(s.id)...) // got our own vote!
 	lastLogIndex, lastLogTerm := s.logStatus()
 	ms = append(ms, s.sendToAllButSelf(&RequestVote{
-		Term:         s.currentTerm,
 		LastLogIndex: lastLogIndex,
 		LastLogTerm:  lastLogTerm,
 	})...)
@@ -193,6 +198,7 @@ func (s *Raft) sendToAllButSelf(rpc RPC) (ms []*Message) {
 		ms = append(ms, &Message{
 			From:     s.id,
 			To:       id,
+			Term:     s.currentTerm,
 			Contents: rpc,
 		})
 	}
@@ -208,7 +214,7 @@ func (s *Raft) handleRequestVote(msg *Message, req *RequestVote) (ms []*Message)
 		Contents: res,
 	}}
 	// Reply false if term < currentTerm (§5.1)
-	if req.Term < s.currentTerm {
+	if msg.Term < s.currentTerm {
 		return
 	}
 	// If votedFor is null or candidateId, and candidate’s log is at least as up-to-date as receiver’s log
@@ -292,7 +298,7 @@ func (s *Raft) quorumSize() int {
 }
 
 func (s *Raft) slog() *slog.Logger {
-	return slog.With(slog.Group("raft", "currentTerm", s.currentTerm, "role", s.role))
+	return slog.With(slog.Group("raft", "id", s.id, "currentTerm", s.currentTerm, "role", s.role))
 }
 
 func (s *Raft) updateTerm(term Term) {
