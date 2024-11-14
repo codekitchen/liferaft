@@ -32,6 +32,7 @@ const (
 
 // information about a member of the cluster, this Raft node or other node
 type Member struct {
+	id         NodeID
 	nextIndex  uint64
 	matchIndex uint64
 	votedFor   NodeID
@@ -49,9 +50,9 @@ type Raft struct {
 	// volatile state on all servers
 	commitIndex uint64
 	lastApplied uint64
-	// volatile state on leader
-	role    Role
-	members map[NodeID]*Member
+	members     []*Member
+	selfMember  *Member
+	role        Role
 	// ticks
 	heartBeatTick       uint
 	electionTimeoutTick uint
@@ -72,7 +73,7 @@ func NewRaft(config *RaftConfig) *Raft {
 		client: config.Client,
 
 		role:    Follower,
-		members: make(map[NodeID]*Member),
+		members: make([]*Member, len(config.Cluster)),
 
 		heartBeatTick:       1,
 		electionTimeoutTick: 10,
@@ -83,10 +84,15 @@ func NewRaft(config *RaftConfig) *Raft {
 	if config.ElectionTimeoutTick > 0 {
 		raft.electionTimeoutTick = config.ElectionTimeoutTick
 	}
-	for _, id := range config.Cluster {
-		raft.members[id] = &Member{
+	for i, id := range config.Cluster {
+		raft.members[i] = &Member{
+			id:         id,
 			nextIndex:  1,
 			matchIndex: 0,
+			votedFor:   NoNode,
+		}
+		if id == config.ID {
+			raft.selfMember = raft.members[i]
 		}
 	}
 	return raft
@@ -152,7 +158,7 @@ func (s *Raft) HandleEvent(event Event) Updates {
 		updates.Persist = &PersistentState{
 			CurrentTerm: s.currentTerm,
 			Log:         s.log,
-			VotedFor:    s.members[s.id].votedFor,
+			VotedFor:    s.selfMember.votedFor,
 		}
 		// If message term > currentTerm, update currentTerm
 		// and convert to follower before responding
@@ -191,13 +197,13 @@ func (s *Raft) startElection() (ms []*Message) {
 }
 
 func (s *Raft) sendToAllButSelf(rpc RPC) (ms []*Message) {
-	for id := range s.members {
-		if id == s.id {
+	for _, m := range s.members {
+		if s.selfMember == m {
 			continue
 		}
 		ms = append(ms, &Message{
 			From:     s.id,
-			To:       id,
+			To:       m.id,
 			Term:     s.currentTerm,
 			Contents: rpc,
 		})
@@ -219,12 +225,12 @@ func (s *Raft) handleRequestVote(msg *Message, req *RequestVote) (ms []*Message)
 	}
 	// If votedFor is null or candidateId, and candidate’s log is at least as up-to-date as receiver’s log
 	// grant vote (§5.2,§5.4)
-	if s.members[s.id].votedFor == "" || s.members[s.id].votedFor == msg.From {
+	if s.selfMember.votedFor == "" || s.selfMember.votedFor == msg.From {
 		lastLogIndex, lastLogTerm := s.logStatus()
 		if req.LastLogIndex >= lastLogIndex && req.LastLogTerm >= lastLogTerm {
 			res.VoteGranted = true
 			s.ticks = 0
-			s.members[s.id].votedFor = msg.From
+			s.selfMember.votedFor = msg.From
 		}
 	}
 	return
@@ -241,7 +247,7 @@ func (s *Raft) handleRequestVoteResponse(msg *Message, req *RequestVoteResponse)
 }
 
 func (s *Raft) gotVote(from NodeID) []*Message {
-	s.members[from].votedFor = s.id
+	s.member(from).votedFor = s.id
 	// If votes received from majority of servers : become leader
 	meCount := s.voteCount(s.id)
 	s.slog().Info("vote response", "from", from, "meCount", meCount, "quorumSize", s.quorumSize())
@@ -249,6 +255,15 @@ func (s *Raft) gotVote(from NodeID) []*Message {
 		s.winElection()
 		// send empty AppendEntries RPC to each server
 		return s.sendHeartbeat()
+	}
+	return nil
+}
+
+func (s *Raft) member(id NodeID) *Member {
+	for _, m := range s.members {
+		if m.id == id {
+			return m
+		}
 	}
 	return nil
 }
