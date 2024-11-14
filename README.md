@@ -12,7 +12,7 @@ The core of this Raft implementation is a "pure" deterministic state machine. Gi
 
 Of course, this precludes doing anything dirty like actually talking to network or disk, or even using timers in some ways. Those concerns are built as layers on top of the core Raft protocol.
 
-This necessarily makes the code a little less idiomatic for Go -- for instance, even a core language feature like `select` is intentionally non-deterministic when more than one channel is ready, so we can't use `select` in the core Raft logic. More sources of non-determinism in Go are covered in [the notes](NOTES.md).
+This necessarily makes the code a little less idiomatic for Go -- for instance, even a core language feature like `select` is intentionally non-deterministic when more than one channel is ready, so we can't use `select` in the core Raft logic. More sources of non-determinism in Go are covered in [the notes](docs/NOTES.md).
 
 ## Testing Framework
 
