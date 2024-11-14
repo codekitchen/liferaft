@@ -36,4 +36,6 @@ But once a failing test case is found, we can re-run it at will! This is such a 
 
 ## Future Directions
 
-I do hope to eventually expand repeatable, deterministic testing to a much larger subset of Go programs, even ones not carefully designed around a purely functional core. I have done some experiments with modifying the Go runtime to allow controlling sources of non-determinism, such as setting the random seed that `select` uses, and enabling a mode where the core scheduler logic is deterministic. But a lot more study and work is needed here.
+I do hope to eventually expand repeatable, deterministic testing to a much larger subset of Go programs, even ones not carefully designed around a purely functional core. I have done some experiments with modifying the Go runtime to allow controlling sources of non-determinism, such as setting the random seed that `select` uses, and enabling a mode where the core scheduler logic is deterministic. But a lot more study and work is needed here. This might be very difficult to do in a way that doesn't affect performance or security, and is acceptable to merge into go core.
+
+I am hoping that my explorations in this repo will help me better understand what that hypothetical more general solution needs to look like.
