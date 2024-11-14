@@ -236,7 +236,7 @@ func (s *Raft) handleRequestVote(msg *Message, req *RequestVote) (ms []*Message)
 }
 
 func (s *Raft) handleRequestVoteResponse(msg *Message, req *RequestVoteResponse) []*Message {
-	if s.role != Candidate {
+	if s.role != Candidate || msg.Term < s.currentTerm {
 		return nil
 	}
 	if req.VoteGranted {
