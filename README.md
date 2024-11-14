@@ -2,7 +2,7 @@
 
 LifeRaft is a Go implementation of the [Raft consensus protocol](https://raft.github.io/). Raft is a protocol to maintain a consistent linearizable log replicated across a cluster of Raft nodes.
 
-The implementation of Raft isn't really the goal here, though. Raft is being used as a convenient test case for exploring modern techniques for testing distributed systems (and locally concurrent systems, but the focus is on distributed).
+The implementation of Raft isn't really the goal here, though. Raft is being used as a right-sized testbed for exploring modern techniques for testing distributed systems (and locally concurrent systems, but the focus is on distributed).
 
 My primary focus right now is on deterministic simulation of distributed systems.
 
