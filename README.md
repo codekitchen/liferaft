@@ -22,6 +22,8 @@ I've already seen success with these techniques, finding a bug in leader electio
 
 But once a failing test case is found, we can re-run it at will! This is such a huge win. Often it's very challenging to come up with a reproducable test case for a bug like this, to the point where many times the fix is implemented without such a test case.
 
+I gave a short 5-minute presentation on finding and fixing this bug, the slides are [here in the repo](docs/first_success.md).
+
 ## Further Reading on Deterministic Simulation Techniques
 
 - [Deterministic Simulation link collection](https://asatarin.github.io/testing-distributed-systems/#deterministic-simulation)
