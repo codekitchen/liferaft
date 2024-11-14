@@ -98,8 +98,6 @@ func NewRaft(config *RaftConfig) *Raft {
 	return raft
 }
 
-// server is state machine -- takes event which could be timer or message from peer, returns new state
-// how does that look to the TUI client?
 type Message struct {
 	From, To NodeID
 	Term     Term
@@ -107,12 +105,13 @@ type Message struct {
 }
 type Tick struct{}
 
-// this is verbose, but it's easier to reason about testing when an Event can't be
-// both a message and a tick
+// This union type is verbose in go, but it's easier to reason about testing
+// when an Event can't be both a message and a tick at the same time.
 type Event interface {
 	isRaftEvent()
 }
 
+// Ditto. Verbose but precludes invalid RPCs.
 type RPC interface {
 	isRaftRPC()
 }
@@ -186,7 +185,7 @@ func (s *Raft) HandleEvent(event Event) Updates {
 func (s *Raft) startElection() (ms []*Message) {
 	s.role = Candidate
 	s.updateTerm(s.currentTerm + 1)
-	s.slog().Info("starting election")
+	// s.slog().Info("starting election")
 	ms = append(ms, s.gotVote(s.id)...) // got our own vote!
 	lastLogIndex, lastLogTerm := s.logStatus()
 	ms = append(ms, s.sendToAllButSelf(&RequestVote{
@@ -250,7 +249,7 @@ func (s *Raft) gotVote(from NodeID) []*Message {
 	s.member(from).votedFor = s.id
 	// If votes received from majority of servers : become leader
 	meCount := s.voteCount(s.id)
-	s.slog().Info("vote response", "from", from, "meCount", meCount, "quorumSize", s.quorumSize())
+	// s.slog().Info("vote response", "from", from, "meCount", meCount, "quorumSize", s.quorumSize())
 	if meCount >= s.quorumSize() {
 		s.winElection()
 		// send empty AppendEntries RPC to each server
@@ -305,7 +304,7 @@ func (s *Raft) Apply(cmd []byte) ([]byte, error) {
 
 func (s *Raft) winElection() {
 	s.role = Leader
-	s.slog().Info("won election", "votes", s.voteCount(s.id))
+	// s.slog().Info("won election", "votes", s.voteCount(s.id))
 }
 
 func (s *Raft) quorumSize() int {

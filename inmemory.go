@@ -6,8 +6,18 @@ import (
 	"slices"
 )
 
+// in-memory cluster, for testing
+type InMemoryCluster struct {
+	Nodemap map[NodeID]*memnode
+	Nodes   []NodeID
+	r       *rand.Rand
+
+	// the delay frames for each link
+	networkState map[networkLink]int
+}
+
 type memnode struct {
-	raft Raft
+	Raft Raft
 }
 
 type memEvent struct {
@@ -15,51 +25,85 @@ type memEvent struct {
 	to NodeID
 }
 
-// in-memory cluster, for testing
-type InMemoryCluster struct {
-	nodemap map[NodeID]*memnode
-	nodes   []NodeID
-	r       *rand.Rand
+type networkLink struct {
+	from, to NodeID
 }
 
 func NewInMemoryCluster(numNodes int, seed int64) *InMemoryCluster {
 	cluster := &InMemoryCluster{
-		nodemap: make(map[NodeID]*memnode),
-		nodes:   make([]NodeID, numNodes),
+		Nodemap: make(map[NodeID]*memnode),
+		Nodes:   make([]NodeID, numNodes),
 		r:       rand.New(rand.NewSource(seed)),
+
+		networkState: make(map[networkLink]int),
 	}
-	for n := range cluster.nodes {
-		cluster.nodes[n] = NodeID(fmt.Sprintf("%d", n+1))
+	for n := range cluster.Nodes {
+		cluster.Nodes[n] = NodeID(fmt.Sprintf("%d", n+1))
 	}
-	for n := range numNodes {
-		id := cluster.nodes[n]
-		cluster.nodemap[id] = &memnode{
-			raft: *NewRaft(&RaftConfig{
+	for _, id := range cluster.Nodes {
+		cluster.Nodemap[id] = &memnode{
+			Raft: *NewRaft(&RaftConfig{
 				ID:      id,
 				Client:  nil,
-				Cluster: cluster.nodes,
+				Cluster: cluster.Nodes,
 			}),
+		}
+		for _, other := range cluster.Nodes {
+			cluster.networkState[networkLink{from: id, to: other}] = 0
 		}
 	}
 	return cluster
 }
 
 func (c *InMemoryCluster) RunForTicks(ticks uint) {
+	var next []memEvent
 	for range ticks {
-		var q []memEvent
-		// set up initial ticks
-		for _, n := range c.nodes {
-			q = append(q, memEvent{ev: &Tick{}, to: c.nodemap[n].raft.id})
+		cur := next
+		next = nil
+
+		// update network state
+		for k := range c.networkState {
+			if c.networkState[k] > 0 {
+				c.networkState[k]--
+			}
 		}
+
+		// set up initial ticks
+		for _, n := range c.Nodes {
+			cur = append(cur, memEvent{ev: &Tick{}, to: n})
+		}
+
+		badNodeIdx := c.r.Int() % 1_000
+		if badNodeIdx < len(c.Nodes) {
+			badNode := c.Nodes[badNodeIdx]
+			badTime := c.r.Intn(1000)
+			// uhoh, this node just got bad networking
+			for k := range c.networkState {
+				if k.from == badNode || k.to == badNode {
+					c.networkState[k] = badTime
+				}
+			}
+		}
+
 		// TODO: this may loop forever if there's a bug that makes
 		// the cluster infinitely chatty
-		for len(q) > 0 {
-			idx := c.r.Intn(len(q))
-			ev := q[idx]
-			q = slices.Delete(q, idx, idx+1)
-			updates := c.nodemap[ev.to].raft.HandleEvent(ev.ev)
+		for len(cur) > 0 {
+			// pick a deterministically random event
+			idx := c.r.Intn(len(cur))
+			ev := cur[idx]
+			cur = slices.Delete(cur, idx, idx+1)
+
+			if msg, ok := ev.ev.(*Message); ok {
+				// if the message is from a node that's badly networked, delay it
+				if c.networkState[networkLink{from: msg.From, to: msg.To}] > 0 {
+					next = append(next, ev)
+					continue
+				}
+			}
+
+			updates := c.Nodemap[ev.to].Raft.HandleEvent(ev.ev)
 			for _, msg := range updates.Outgoing {
-				q = append(q, memEvent{ev: msg, to: msg.To})
+				cur = append(cur, memEvent{ev: msg, to: msg.To})
 			}
 		}
 	}
