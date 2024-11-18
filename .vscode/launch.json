@@ -10,9 +10,9 @@
       "request": "launch",
       "mode": "auto",
       "program": "${fileDirname}",
-      "args": ["-exploreTest", "TestElection"],
+      "args": ["-exploreTest", "TestNetworkBadness"],
       "env": {
-        "TEST_SEED": "984927255"
+        "TEST_SEED": "2137282398"
       }
     }
   ]

@@ -57,6 +57,8 @@ func NewInMemoryCluster(numNodes int, seed int64) *InMemoryCluster {
 
 func (c *InMemoryCluster) RunForTicks(ticks uint, afterTick func()) {
 	var next []memEvent
+	cmdIdx := 0
+
 	for range ticks {
 		cur := next
 		next = nil
@@ -73,7 +75,7 @@ func (c *InMemoryCluster) RunForTicks(ticks uint, afterTick func()) {
 			cur = append(cur, memEvent{ev: &Tick{}, to: n})
 		}
 
-		badNodeIdx := c.r.Int() % 1_000
+		badNodeIdx := 50 //c.r.Int() % 1_000
 		if badNodeIdx < len(c.Nodes) {
 			badNode := c.Nodes[badNodeIdx]
 			badTime := c.r.Intn(1000)
@@ -81,6 +83,19 @@ func (c *InMemoryCluster) RunForTicks(ticks uint, afterTick func()) {
 			for k := range c.networkState {
 				if k.from == badNode || k.to == badNode {
 					c.networkState[k] = badTime
+				}
+			}
+		}
+
+		if c.r.Intn(50) == 0 {
+			// do an apply to the leader
+			cmdIdx++
+			cmd := Apply{
+				cmd: []byte(fmt.Sprintf("cmd:%d", cmdIdx)),
+			}
+			for _, n := range c.Nodes {
+				if c.Nodemap[n].Raft.role == Leader {
+					cur = append(cur, memEvent{ev: &cmd, to: n})
 				}
 			}
 		}

@@ -1,15 +1,19 @@
 package liferaft
 
-import "log/slog"
+import (
+	"fmt"
+	"log/slog"
+)
 
 type Client interface {
 	Apply(cmd []byte) ([]byte, error)
 }
 
 type NodeID string
-type Term uint64
 
 const NoNode NodeID = ""
+
+type Term uint64
 
 type PersistentState struct {
 	CurrentTerm Term
@@ -20,6 +24,17 @@ type PersistentState struct {
 type Entry struct {
 	Term Term
 	Cmd  []byte
+}
+
+type EntryInfo struct {
+	Term  Term
+	Index int
+}
+
+var NoEntry = EntryInfo{Term: 0, Index: -1}
+
+func (e EntryInfo) GTE(e2 EntryInfo) bool {
+	return e.Index >= e2.Index && e.Term >= e2.Term
 }
 
 type Role string
@@ -33,8 +48,8 @@ const (
 // information about a member of the cluster, this Raft node or other node
 type Member struct {
 	id         NodeID
-	nextIndex  uint64
-	matchIndex uint64
+	nextIndex  int
+	matchIndex int
 	votedFor   NodeID
 }
 
@@ -48,8 +63,8 @@ type Raft struct {
 	currentTerm Term
 	log         []Entry
 	// volatile state on all servers
-	commitedLength uint64
-	appliedLength  uint64
+	commitedLength int
+	appliedLength  int
 	members        []*Member
 	selfMember     *Member
 	role           Role
@@ -71,6 +86,8 @@ func NewRaft(config *RaftConfig) *Raft {
 	raft := &Raft{
 		id:     NodeID(config.ID),
 		client: config.Client,
+
+		currentTerm: Term(1),
 
 		role:    Follower,
 		members: make([]*Member, len(config.Cluster)),
@@ -104,6 +121,9 @@ type Message struct {
 	Contents RPC
 }
 type Tick struct{}
+type Apply struct {
+	cmd []byte
+}
 
 // This union type is verbose in go, but it's easier to reason about testing
 // when an Event can't be both a message and a tick at the same time.
@@ -118,18 +138,25 @@ type RPC interface {
 
 func (t *Tick) isRaftEvent()    {}
 func (m *Message) isRaftEvent() {}
+func (m *Apply) isRaftEvent()   {}
 
 type RequestVote struct {
-	LastLogIndex uint64
-	LastLogTerm  Term
+	LastLogEntry EntryInfo
 }
 
 type RequestVoteResponse struct {
 	VoteGranted bool
 }
 
-type AppendEntries struct{}
-type AppendEntriesResponse struct{}
+type AppendEntries struct {
+	PrevLogEntry EntryInfo
+	Entries      []Entry
+	LeaderCommit int
+}
+type AppendEntriesResponse struct {
+	Success          bool
+	LastIndexApplied int
+}
 
 func (r *RequestVote) isRaftRPC()           {}
 func (r *RequestVoteResponse) isRaftRPC()   {}
@@ -142,6 +169,7 @@ type Updates struct {
 }
 
 func (s *Raft) HandleEvent(event Event) Updates {
+	// TODO: // If commitIndex > lastApplied: increment lastApplied, apply log[lastAppiled] to state machine (§5.3)
 	var updates Updates
 	var ms []*Message
 	switch event := event.(type) {
@@ -153,6 +181,11 @@ func (s *Raft) HandleEvent(event Event) Updates {
 			ms = s.startElection()
 		}
 	case *Message:
+		// If a server receives a request with a stale term number,
+		// it rejects the request. (§5.1)
+		if event.Term < s.currentTerm {
+			break
+		}
 		// must persist state before responding to RPC
 		updates.Persist = &PersistentState{
 			CurrentTerm: s.currentTerm,
@@ -165,6 +198,7 @@ func (s *Raft) HandleEvent(event Event) Updates {
 			s.updateTerm(event.Term)
 			s.role = Follower
 		}
+
 		switch rpc := event.Contents.(type) {
 		case *RequestVote:
 			ms = s.handleRequestVote(event, rpc)
@@ -175,8 +209,19 @@ func (s *Raft) HandleEvent(event Event) Updates {
 		case *AppendEntriesResponse:
 			ms = s.handleAppendEntriesResponse(event, rpc)
 		}
+	case *Apply:
+		// just ignoring the apply when not a leader isn't great,
+		// though callers should be checking that anyway since they have to handle forwarding to leader.
+		// But I'd like to figure out how to fit feedback on that into this state machine.
+		if s.role == Leader {
+			s.log = append(s.log, Entry{
+				Term: s.currentTerm,
+				Cmd:  event.cmd,
+			})
+			ms = s.sendHeartbeat()
+		}
 	default:
-		panic("invalid type passed to HandleEvent")
+		panic(fmt.Sprintf("invalid type passed to HandleEvent %#v", event))
 	}
 	updates.Outgoing = append(updates.Outgoing, ms...)
 	return updates
@@ -187,10 +232,8 @@ func (s *Raft) startElection() (ms []*Message) {
 	s.updateTerm(s.currentTerm + 1)
 	// s.slog().Info("starting election")
 	ms = append(ms, s.gotVote(s.id)...) // got our own vote!
-	lastLogIndex, lastLogTerm := s.logStatus()
 	ms = append(ms, s.sendToAllButSelf(&RequestVote{
-		LastLogIndex: lastLogIndex,
-		LastLogTerm:  lastLogTerm,
+		LastLogEntry: s.logStatus(),
 	})...)
 	return
 }
@@ -218,15 +261,11 @@ func (s *Raft) handleRequestVote(msg *Message, req *RequestVote) (ms []*Message)
 		Term:     s.currentTerm,
 		Contents: res,
 	}}
-	// Reply false if term < currentTerm (§5.1)
-	if msg.Term < s.currentTerm {
-		return
-	}
 	// If votedFor is null or candidateId, and candidate’s log is at least as up-to-date as receiver’s log
 	// grant vote (§5.2,§5.4)
 	if s.selfMember.votedFor == "" || s.selfMember.votedFor == msg.From {
-		lastLogIndex, lastLogTerm := s.logStatus()
-		if req.LastLogIndex >= lastLogIndex && req.LastLogTerm >= lastLogTerm {
+		myLastEntry := s.logStatus()
+		if req.LastLogEntry.GTE(myLastEntry) {
 			res.VoteGranted = true
 			s.ticks = 0
 			s.selfMember.votedFor = msg.From
@@ -236,7 +275,7 @@ func (s *Raft) handleRequestVote(msg *Message, req *RequestVote) (ms []*Message)
 }
 
 func (s *Raft) handleRequestVoteResponse(msg *Message, req *RequestVoteResponse) []*Message {
-	if s.role != Candidate || msg.Term < s.currentTerm {
+	if s.role != Candidate {
 		return nil
 	}
 	if req.VoteGranted {
@@ -277,33 +316,103 @@ func (s *Raft) voteCount(forNode NodeID) (count int) {
 }
 
 func (s *Raft) handleAppendEntries(msg *Message, req *AppendEntries) (ms []*Message) {
-	// heartbeat
+	res := &AppendEntriesResponse{}
+	ms = []*Message{{
+		From:     s.id,
+		To:       msg.From,
+		Term:     s.currentTerm,
+		Contents: res,
+	}}
+
 	if s.role == Candidate {
 		// If AppendEntriesRPC received from new leader: convert to follower
 		s.role = Follower
 	}
 	s.ticks = 0
+
+	if !s.hasMatchingLogEntry(req.PrevLogEntry) {
+		return
+	}
+
+	// If an existing entry conflicts with a new one (same index
+	// but different terms), delete the existing entry and all that follow it (§5.3)
+	for i, e := range req.Entries {
+		existingIdx := req.PrevLogEntry.Index + 1 + i
+		if existingIdx >= len(s.log) {
+			break
+		}
+		if s.log[existingIdx].Term != e.Term {
+			// delete the existing entry and all that follow it
+			s.log = s.log[0:existingIdx]
+			break
+		}
+	}
+
+	// append any new entries not already in the log
+	s.log = appendNewEntries(s.log, req.PrevLogEntry.Index+1, req.Entries)
+
+	// TODO: apply these commits syncronously? right now it happens at next tick.
+	if req.LeaderCommit > s.commitedLength {
+		s.commitedLength = min(req.LeaderCommit, len(s.log))
+	}
+
+	res.LastIndexApplied = len(s.log) - 1
+	res.Success = true
 	return
+}
+
+func appendNewEntries[T any](log []T, firstNewIdx int, newEntries []T) []T {
+	alreadyHave := len(log) - firstNewIdx
+	if alreadyHave < len(newEntries) {
+		log = append(log, newEntries[alreadyHave:]...)
+	}
+	return log
+}
+
+func (s *Raft) hasMatchingLogEntry(entry EntryInfo) bool {
+	if entry == NoEntry {
+		return true
+	}
+	if entry.Index >= len(s.log) {
+		return false
+	}
+	return s.log[entry.Index].Term == entry.Term
 }
 
 func (s *Raft) handleAppendEntriesResponse(msg *Message, req *AppendEntriesResponse) (ms []*Message) {
-	panic("implement me")
-}
-
-func (s *Raft) logStatus() (lastLogIndex uint64, lastLogTerm Term) {
-	if len(s.log) > 0 {
-		lastLogIndex = uint64(len(s.log)) - 1
-		lastLogTerm = s.log[len(s.log)-1].Term
+	m := s.member(msg.From)
+	if req.Success {
+		m.matchIndex = req.LastIndexApplied
+		m.nextIndex = req.LastIndexApplied + 1
+	} else {
+		m.nextIndex = max(0, m.nextIndex-1)
+		// TODO: retry immediately, this retries on next heartbeat
 	}
+	s.checkForCommits()
 	return
 }
 
-func (s *Raft) Apply(cmd []byte) ([]byte, error) {
-	panic("implement Apply, remember thread safety")
+func (s *Raft) checkForCommits() {
+	// If there exists an N such that N > commitIndex, a majority of matchIndex[i] >= N, and log[N].term == currentTerm:
+	// set commitIndex = N
+}
+
+func (s *Raft) logStatus() EntryInfo {
+	if len(s.log) == 0 {
+		return NoEntry
+	}
+	return EntryInfo{
+		Term:  s.log[len(s.log)-1].Term,
+		Index: len(s.log) - 1,
+	}
 }
 
 func (s *Raft) winElection() {
 	s.role = Leader
+	for _, m := range s.members {
+		m.nextIndex = len(s.log)
+		m.matchIndex = 0
+	}
 	// s.slog().Info("won election", "votes", s.voteCount(s.id))
 }
 
@@ -323,11 +432,47 @@ func (s *Raft) updateTerm(term Term) {
 	}
 }
 
-func (s *Raft) sendHeartbeat() []*Message {
-	s.ticks = 0
-	return s.sendToAllButSelf(&AppendEntries{})
-}
-
 func (s *Raft) CommittedLog() []Entry {
 	return s.log[0:s.commitedLength]
+}
+
+// sendHeartbeat currently *always* replicates log entries
+// as well. This ensures that the leader continues to retry
+// replication if the follower doesn't respond.
+// In practice this might be too chatty, though, given
+// that the heartbeat timeout could be smaller than the
+// time it takes for a follower to apply AppendEntries and
+// reply.
+// Future improvement: separate tick timeout for retrying
+// AppendEntries when the leader gets no response, then
+// heartbeats can go back to not replicating logs.
+func (s *Raft) sendHeartbeat() (ms []*Message) {
+	s.ticks = 0
+
+	for _, n := range s.members {
+		if n.id == s.id {
+			continue
+		}
+		rpc := &AppendEntries{
+			LeaderCommit: s.commitedLength,
+			PrevLogEntry: NoEntry,
+		}
+		if len(s.log) > n.nextIndex {
+			rpc.Entries = s.log[n.nextIndex:]
+			prevIndex := n.nextIndex - 1
+			if prevIndex >= 0 {
+				rpc.PrevLogEntry = EntryInfo{
+					Index: prevIndex,
+					Term:  s.log[prevIndex].Term,
+				}
+			}
+		}
+		ms = append(ms, &Message{
+			From:     s.id,
+			To:       n.id,
+			Term:     s.currentTerm,
+			Contents: rpc,
+		})
+	}
+	return
 }

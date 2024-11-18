@@ -53,7 +53,7 @@ func StartEphemeralNode(client Client, selfAddr string, otherAddrs []string) *Ep
 }
 
 func (n *EphemeralRPCNode) Apply(cmd []byte) ([]byte, error) {
-	return n.raft.Apply(cmd)
+	panic("implement Apply, remember thread safety")
 }
 
 func (n *EphemeralRPCNode) run() {
