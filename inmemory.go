@@ -55,7 +55,7 @@ func NewInMemoryCluster(numNodes int, seed int64) *InMemoryCluster {
 	return cluster
 }
 
-func (c *InMemoryCluster) RunForTicks(ticks uint) {
+func (c *InMemoryCluster) RunForTicks(ticks uint, afterTick func()) {
 	var next []memEvent
 	for range ticks {
 		cur := next
@@ -105,6 +105,10 @@ func (c *InMemoryCluster) RunForTicks(ticks uint) {
 			for _, msg := range updates.Outgoing {
 				cur = append(cur, memEvent{ev: msg, to: msg.To})
 			}
+		}
+
+		if afterTick != nil {
+			afterTick()
 		}
 	}
 }

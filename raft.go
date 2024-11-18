@@ -48,11 +48,11 @@ type Raft struct {
 	currentTerm Term
 	log         []Entry
 	// volatile state on all servers
-	commitIndex uint64
-	lastApplied uint64
-	members     []*Member
-	selfMember  *Member
-	role        Role
+	commitedLength uint64
+	appliedLength  uint64
+	members        []*Member
+	selfMember     *Member
+	role           Role
 	// ticks
 	heartBeatTick       uint
 	electionTimeoutTick uint
@@ -326,4 +326,8 @@ func (s *Raft) updateTerm(term Term) {
 func (s *Raft) sendHeartbeat() []*Message {
 	s.ticks = 0
 	return s.sendToAllButSelf(&AppendEntries{})
+}
+
+func (s *Raft) CommittedLog() []Entry {
+	return s.log[0:s.commitedLength]
 }

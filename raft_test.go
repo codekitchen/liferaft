@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ import (
 
 var exploreTest = flag.String("exploreTest", "", "run an exploration test")
 
-func TestElection(t *testing.T) {
+func TestNetworkBadness(t *testing.T) {
 	if *exploreTest != t.Name() {
 		t.SkipNow()
 	}
@@ -49,8 +50,10 @@ func runOne(t *testing.T, seed int64) bool {
 			}
 		}()
 		cluster := NewInMemoryCluster(3, seed)
-		cluster.RunForTicks(1_000)
-		leaderInvariant(t, cluster)
+		cluster.RunForTicks(1_000, func() {
+			leaderInvariant(t, cluster)
+			logInvariant(t, cluster)
+		})
 	})
 	return success
 }
@@ -69,4 +72,19 @@ func leaderInvariant(t *testing.T, cluster *InMemoryCluster) {
 			t.Fatalf("expected at most 1 leader for term %d, got %d", term, count)
 		}
 	}
+}
+
+// Committed log entries should never conflict between servers.
+func logInvariant(t *testing.T, cluster *InMemoryCluster) {
+	for i, n1 := range cluster.Nodes {
+		log1 := cluster.Nodemap[n1].Raft.CommittedLog()
+		for _, n2 := range cluster.Nodes[i+1:] {
+			log2 := cluster.Nodemap[n2].Raft.CommittedLog()
+			checkLen := min(len(log1), len(log2))
+			if !reflect.DeepEqual(log1[:checkLen], log2[:checkLen]) {
+				t.Fatalf("log conflict between %s and %s", n1, n2)
+			}
+		}
+	}
+
 }
