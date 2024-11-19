@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/codekitchen/liferaft"
 )
@@ -63,8 +61,6 @@ func (s *store) Apply(cmd []byte) ([]byte, error) {
 }
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
-
 	selfAddr := flag.String("self", "", "address of this node")
 	othersStr := flag.String("others", "", "addresses of other nodes")
 	flag.Parse()
@@ -79,9 +75,6 @@ func main() {
 	defer node.Stop()
 
 	scanner := bufio.NewScanner(os.Stdin)
-	for {
-		time.Sleep(time.Second)
-	}
 	for {
 		fmt.Printf("$ ")
 		if !scanner.Scan() {

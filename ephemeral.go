@@ -6,16 +6,31 @@ import (
 	"math/rand"
 	"net"
 	"net/rpc"
+	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
+
+type result struct {
+	res []byte
+	err error
+}
+type resultChan chan result
 
 // For ephemeral nodes, the address is the ID.
 // This makes it unsafe to restart a server once it has stopped, unless you restart the whole cluster.
 type EphemeralRPCNode struct {
+	mu sync.Mutex
+
 	raft     Raft
 	stop     chan struct{}
 	incoming chan *Message
+	applies  chan *Apply
 	nodes    map[NodeID]*node
+	client   Client
+
+	waitingApplies map[string]resultChan
 }
 
 type node struct {
@@ -33,15 +48,17 @@ func StartEphemeralNode(client Client, selfAddr string, otherAddrs []string) *Ep
 	}
 
 	n := &EphemeralRPCNode{
+		client: client,
 		raft: *NewRaft(&RaftConfig{
 			ID:                  id,
-			Client:              client,
 			Cluster:             cluster,
 			ElectionTimeoutTick: uint(8 + rand.Intn(6)),
 		}),
-		nodes:    make(map[NodeID]*node),
-		stop:     make(chan struct{}),
-		incoming: make(chan *Message, 100),
+		nodes:          make(map[NodeID]*node),
+		stop:           make(chan struct{}),
+		incoming:       make(chan *Message, 100),
+		applies:        make(chan *Apply),
+		waitingApplies: make(map[string]resultChan),
 	}
 	for _, addr := range otherAddrs {
 		n.nodes[NodeID(addr)] = &node{address: addr}
@@ -53,7 +70,23 @@ func StartEphemeralNode(client Client, selfAddr string, otherAddrs []string) *Ep
 }
 
 func (n *EphemeralRPCNode) Apply(cmd []byte) ([]byte, error) {
-	panic("implement Apply, remember thread safety")
+	waiter := make(resultChan, 1)
+	clientID := uuid.New().String()
+	n.mu.Lock()
+	n.waitingApplies[clientID] = waiter
+	n.mu.Unlock()
+	apply := &Apply{
+		Cmd:      cmd,
+		ClientID: clientID,
+	}
+	n.applies <- apply
+	// TODO: need timeout here
+	result := <-waiter
+	close(waiter)
+	n.mu.Lock()
+	delete(n.waitingApplies, clientID)
+	n.mu.Unlock()
+	return result.res, result.err
 }
 
 func (n *EphemeralRPCNode) run() {
@@ -67,12 +100,28 @@ func (n *EphemeralRPCNode) run() {
 			event = &Tick{}
 		case msg := <-n.incoming:
 			event = msg
+		case apply := <-n.applies:
+			if n.raft.role != Leader {
+				n.relayApplyToLeader(apply)
+				continue
+			}
+			event = apply
 		case <-n.stop:
 			return
 		}
 
 		updates := n.raft.HandleEvent(event)
 		// intentionally ignoring updates.Persist, cuz ephemeral
+		for _, a := range updates.Apply {
+			res, err := n.client.Apply(a.Cmd)
+			n.mu.Lock()
+			waiter, ok := n.waitingApplies[a.ClientID]
+			delete(n.waitingApplies, a.ClientID)
+			n.mu.Unlock()
+			if ok {
+				waiter <- result{res, err}
+			}
+		}
 		for _, msg := range updates.Outgoing {
 			n.sendRPC(msg)
 		}
@@ -94,7 +143,35 @@ func (n *EphemeralRPCNode) sendRPC(msg *Message) {
 	}
 
 	if err != nil {
-		// slog.Warn("failed to send message to node", "msg", msg, "error", err)
+		// slog.Error("failed to send message to node", "msg", msg, "error", err)
+		if client.rpcClient != nil {
+			client.rpcClient.Close()
+			client.rpcClient = nil
+		}
+	}
+}
+
+func (n *EphemeralRPCNode) relayApplyToLeader(apply *Apply) {
+	to := n.raft.leaderID
+	if to == NoNode {
+		// TODO: get this error back to the client
+		return
+	}
+	client := n.nodes[to]
+	if client == nil {
+		log.Fatal("invalid leader node id")
+	}
+	var err error
+
+	if client.rpcClient == nil {
+		client.rpcClient, err = rpc.Dial("tcp", client.address)
+	}
+	if err == nil {
+		err = client.rpcClient.Call("Ephemeral.RelayApply", apply, nil)
+	}
+
+	if err != nil {
+		// slog.Error("failed to send message to node", "msg", msg, "error", err)
 		if client.rpcClient != nil {
 			client.rpcClient.Close()
 			client.rpcClient = nil
@@ -105,6 +182,11 @@ func (n *EphemeralRPCNode) sendRPC(msg *Message) {
 // TODO: rsp is unused here, how to model that?
 func (n *EphemeralRPCNode) Receive(msg *Message, rsp *Message) error {
 	n.incoming <- msg
+	return nil
+}
+
+func (n *EphemeralRPCNode) RelayApply(apply *Apply, rsp *Apply) error {
+	n.applies <- apply
 	return nil
 }
 
@@ -123,8 +205,8 @@ func (n *EphemeralRPCNode) Stop() {
 }
 
 func gobInit() {
-	gob.Register(&RequestVote{})
-	gob.Register(&RequestVoteResponse{})
-	gob.Register(&AppendEntries{})
-	gob.Register(&AppendEntriesResponse{})
+	gob.Register((*RequestVote)(nil))
+	gob.Register((*RequestVoteResponse)(nil))
+	gob.Register((*AppendEntries)(nil))
+	gob.Register((*AppendEntriesResponse)(nil))
 }

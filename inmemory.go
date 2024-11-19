@@ -91,7 +91,7 @@ func (c *InMemoryCluster) RunForTicks(ticks uint, afterTick func()) {
 			// do an apply to the leader
 			cmdIdx++
 			cmd := Apply{
-				cmd: []byte(fmt.Sprintf("cmd:%d", cmdIdx)),
+				Cmd: []byte(fmt.Sprintf("cmd:%d", cmdIdx)),
 			}
 			for _, n := range c.Nodes {
 				if c.Nodemap[n].Raft.role == Leader {

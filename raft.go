@@ -22,8 +22,9 @@ type PersistentState struct {
 }
 
 type Entry struct {
-	Term Term
-	Cmd  []byte
+	Term     Term
+	Cmd      []byte
+	ClientID string
 }
 
 type EntryInfo struct {
@@ -70,6 +71,7 @@ type Raft struct {
 	members         []*Member
 	selfMember      *Member
 	role            Role
+	leaderID        NodeID
 	// ticks
 	heartBeatTick       uint
 	electionTimeoutTick uint
@@ -91,8 +93,9 @@ func NewRaft(config *RaftConfig) *Raft {
 
 		currentTerm: Term(1),
 
-		role:    Follower,
-		members: make([]*Member, len(config.Cluster)),
+		members:  make([]*Member, len(config.Cluster)),
+		role:     Follower,
+		leaderID: NoNode,
 
 		heartBeatTick:       1,
 		electionTimeoutTick: 10,
@@ -124,7 +127,8 @@ type Message struct {
 }
 type Tick struct{}
 type Apply struct {
-	cmd []byte
+	Cmd      []byte
+	ClientID string
 }
 
 // This union type is verbose in go, but it's easier to reason about testing
@@ -219,10 +223,14 @@ func (s *Raft) HandleEvent(event Event) Updates {
 		// just ignoring the apply when not a leader isn't great,
 		// though callers should be checking that anyway since they have to handle forwarding to leader.
 		// But I'd like to figure out how to fit feedback on that into this state machine.
+		if s.role != Leader {
+			fmt.Printf("not the leader! ignoring")
+		}
 		if s.role == Leader {
 			s.log = append(s.log, Entry{
-				Term: s.currentTerm,
-				Cmd:  event.cmd,
+				Term:     s.currentTerm,
+				Cmd:      event.Cmd,
+				ClientID: event.ClientID,
 			})
 			ms = s.sendHeartbeat()
 		}
@@ -341,6 +349,7 @@ func (s *Raft) handleAppendEntries(msg *Message, req *AppendEntries) (ms []*Mess
 		s.role = Follower
 	}
 	s.ticks = 0
+	s.leaderID = msg.From
 
 	if !s.hasMatchingLogEntry(req.PrevLogEntry) {
 		return
@@ -355,6 +364,8 @@ func (s *Raft) handleAppendEntries(msg *Message, req *AppendEntries) (ms []*Mess
 		}
 		if s.log[existingIdx].Term != e.Term {
 			// delete the existing entry and all that follow it
+			// TODO: notify the client that these commands were dropped, so that it can
+			// quickly retry if it cares about any of them, instead of waiting for timeout.
 			s.log = s.log[0:existingIdx]
 			break
 		}
