@@ -47,8 +47,10 @@ const (
 
 // information about a member of the cluster, this Raft node or other node
 type Member struct {
-	id         NodeID
-	nextIndex  int
+	id NodeID
+	// index of next log entry to send to that server
+	nextIndex int
+	// index of highest log entry known to be replicated on server
 	matchIndex int
 	votedFor   NodeID
 }
@@ -63,11 +65,11 @@ type Raft struct {
 	currentTerm Term
 	log         []Entry
 	// volatile state on all servers
-	commitedLength int
-	appliedLength  int
-	members        []*Member
-	selfMember     *Member
-	role           Role
+	committedLength int
+	appliedLength   int
+	members         []*Member
+	selfMember      *Member
+	role            Role
 	// ticks
 	heartBeatTick       uint
 	electionTimeoutTick uint
@@ -350,10 +352,11 @@ func (s *Raft) handleAppendEntries(msg *Message, req *AppendEntries) (ms []*Mess
 
 	// append any new entries not already in the log
 	s.log = appendNewEntries(s.log, req.PrevLogEntry.Index+1, req.Entries)
+	s.member(s.id).matchIndex = len(s.log) - 1
 
 	// TODO: apply these commits syncronously? right now it happens at next tick.
-	if req.LeaderCommit > s.commitedLength {
-		s.commitedLength = min(req.LeaderCommit, len(s.log))
+	if req.LeaderCommit > s.committedLength {
+		s.committedLength = min(req.LeaderCommit, len(s.log))
 	}
 
 	res.LastIndexApplied = len(s.log) - 1
@@ -393,8 +396,24 @@ func (s *Raft) handleAppendEntriesResponse(msg *Message, req *AppendEntriesRespo
 }
 
 func (s *Raft) checkForCommits() {
-	// If there exists an N such that N > commitIndex, a majority of matchIndex[i] >= N, and log[N].term == currentTerm:
+	// If there exists an N such that N > commitIndex, a majority of matchIndex[n] >= N, and log[N].term == currentTerm:
 	// set commitIndex = N
+	for n := len(s.log) - 1; n > s.committedLength-1; n-- {
+		entry := s.log[n]
+		if entry.Term != s.currentTerm {
+			break
+		}
+		count := 0
+		for _, m := range s.members {
+			if m.matchIndex >= n {
+				count++
+			}
+		}
+		if count >= s.quorumSize() {
+			s.committedLength = n + 1
+			break
+		}
+	}
 }
 
 func (s *Raft) logStatus() EntryInfo {
@@ -433,7 +452,7 @@ func (s *Raft) updateTerm(term Term) {
 }
 
 func (s *Raft) CommittedLog() []Entry {
-	return s.log[0:s.commitedLength]
+	return s.log[0:s.committedLength]
 }
 
 // sendHeartbeat currently *always* replicates log entries
@@ -454,7 +473,7 @@ func (s *Raft) sendHeartbeat() (ms []*Message) {
 			continue
 		}
 		rpc := &AppendEntries{
-			LeaderCommit: s.commitedLength,
+			LeaderCommit: s.committedLength,
 			PrevLogEntry: NoEntry,
 		}
 		if len(s.log) > n.nextIndex {
