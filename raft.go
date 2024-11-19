@@ -106,7 +106,7 @@ func NewRaft(config *RaftConfig) *Raft {
 	for i, id := range config.Cluster {
 		raft.members[i] = &Member{
 			id:         id,
-			nextIndex:  1,
+			nextIndex:  0,
 			matchIndex: 0,
 			votedFor:   NoNode,
 		}
@@ -151,13 +151,17 @@ type RequestVoteResponse struct {
 }
 
 type AppendEntries struct {
-	PrevLogEntry EntryInfo
-	Entries      []Entry
-	LeaderCommit int
+	PrevLogEntry          EntryInfo
+	Entries               []Entry
+	LeaderCommittedLength int
 }
 type AppendEntriesResponse struct {
 	Success          bool
 	LastIndexApplied int
+	// The leader doesn't keep track of if the AppendEntries request
+	// included any entries, or if it was just a heartbeat.
+	// So we have to relay that information back to it.
+	SentEntries bool
 }
 
 func (r *RequestVote) isRaftRPC()           {}
@@ -167,11 +171,11 @@ func (r *AppendEntriesResponse) isRaftRPC() {}
 
 type Updates struct {
 	Persist  *PersistentState
+	Apply    []Entry
 	Outgoing []*Message
 }
 
 func (s *Raft) HandleEvent(event Event) Updates {
-	// TODO: // If commitIndex > lastApplied: increment lastApplied, apply log[lastAppiled] to state machine (§5.3)
 	var updates Updates
 	var ms []*Message
 	switch event := event.(type) {
@@ -225,6 +229,12 @@ func (s *Raft) HandleEvent(event Event) Updates {
 	default:
 		panic(fmt.Sprintf("invalid type passed to HandleEvent %#v", event))
 	}
+	// If commitIndex > lastApplied: increment lastApplied, apply log[lastAppiled] to state machine (§5.3)
+	if s.appliedLength < s.committedLength {
+		updates.Apply = s.log[s.appliedLength:s.committedLength]
+		s.appliedLength = s.committedLength
+	}
+
 	updates.Outgoing = append(updates.Outgoing, ms...)
 	return updates
 }
@@ -352,14 +362,17 @@ func (s *Raft) handleAppendEntries(msg *Message, req *AppendEntries) (ms []*Mess
 
 	// append any new entries not already in the log
 	s.log = appendNewEntries(s.log, req.PrevLogEntry.Index+1, req.Entries)
-	s.member(s.id).matchIndex = len(s.log) - 1
+	s.selfMember.matchIndex = len(s.log) - 1
 
 	// TODO: apply these commits syncronously? right now it happens at next tick.
-	if req.LeaderCommit > s.committedLength {
-		s.committedLength = min(req.LeaderCommit, len(s.log))
+	if req.LeaderCommittedLength > s.committedLength {
+		s.committedLength = min(req.LeaderCommittedLength, len(s.log))
 	}
 
-	res.LastIndexApplied = len(s.log) - 1
+	if len(req.Entries) > 0 {
+		res.SentEntries = true
+		res.LastIndexApplied = len(s.log) - 1
+	}
 	res.Success = true
 	return
 }
@@ -385,8 +398,10 @@ func (s *Raft) hasMatchingLogEntry(entry EntryInfo) bool {
 func (s *Raft) handleAppendEntriesResponse(msg *Message, req *AppendEntriesResponse) (ms []*Message) {
 	m := s.member(msg.From)
 	if req.Success {
-		m.matchIndex = req.LastIndexApplied
-		m.nextIndex = req.LastIndexApplied + 1
+		if req.SentEntries {
+			m.matchIndex = req.LastIndexApplied
+			m.nextIndex = req.LastIndexApplied + 1
+		}
 	} else {
 		m.nextIndex = max(0, m.nextIndex-1)
 		// TODO: retry immediately, this retries on next heartbeat
@@ -451,6 +466,8 @@ func (s *Raft) updateTerm(term Term) {
 	}
 }
 
+// CommittedLog returns the portion of the log that has been committed.
+// (but not necessarily applied).
 func (s *Raft) CommittedLog() []Entry {
 	return s.log[0:s.committedLength]
 }
@@ -473,17 +490,15 @@ func (s *Raft) sendHeartbeat() (ms []*Message) {
 			continue
 		}
 		rpc := &AppendEntries{
-			LeaderCommit: s.committedLength,
-			PrevLogEntry: NoEntry,
+			LeaderCommittedLength: s.committedLength,
+			PrevLogEntry:          NoEntry,
 		}
-		if len(s.log) > n.nextIndex {
-			rpc.Entries = s.log[n.nextIndex:]
-			prevIndex := n.nextIndex - 1
-			if prevIndex >= 0 {
-				rpc.PrevLogEntry = EntryInfo{
-					Index: prevIndex,
-					Term:  s.log[prevIndex].Term,
-				}
+		rpc.Entries = s.log[n.nextIndex:]
+		prevIndex := n.nextIndex - 1
+		if prevIndex >= 0 {
+			rpc.PrevLogEntry = EntryInfo{
+				Index: prevIndex,
+				Term:  s.log[prevIndex].Term,
 			}
 		}
 		ms = append(ms, &Message{

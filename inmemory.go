@@ -75,7 +75,7 @@ func (c *InMemoryCluster) RunForTicks(ticks uint, afterTick func()) {
 			cur = append(cur, memEvent{ev: &Tick{}, to: n})
 		}
 
-		badNodeIdx := 50 //c.r.Int() % 1_000
+		badNodeIdx := c.r.Int() % 1_000
 		if badNodeIdx < len(c.Nodes) {
 			badNode := c.Nodes[badNodeIdx]
 			badTime := c.r.Intn(1000)

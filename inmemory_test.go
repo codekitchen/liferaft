@@ -53,6 +53,7 @@ func runOne(t *testing.T, seed int64) bool {
 		cluster.RunForTicks(1_000, func() {
 			leaderInvariant(t, cluster)
 			logInvariant(t, cluster)
+			electionSafetyInvariant(t, cluster)
 		})
 	})
 	return success
@@ -86,6 +87,31 @@ func logInvariant(t *testing.T, cluster *InMemoryCluster) {
 			}
 		}
 	}
+}
+
+// A leader always has the greatest index for its current term
+func electionSafetyInvariant(t *testing.T, cluster *InMemoryCluster) {
+	for _, n := range cluster.Nodemap {
+		if n.Raft.role == Leader {
+			term := n.Raft.currentTerm
+			lidx := maxIndexForTerm(n.Raft.log, term)
+			for _, n2 := range cluster.Nodemap {
+				ridx := maxIndexForTerm(n2.Raft.log, term)
+				if lidx < ridx {
+					t.Fatalf("leader %s does not have greatest index for term %d", n.Raft.id, term)
+				}
+			}
+		}
+	}
+}
+
+func maxIndexForTerm(log []Entry, term Term) int {
+	for i := len(log) - 1; i >= 0; i-- {
+		if log[i].Term == term {
+			return i
+		}
+	}
+	return 0
 }
 
 func entryEq(e1, e2 Entry) bool {

@@ -12,7 +12,7 @@
       "program": "${fileDirname}",
       "args": ["-exploreTest", "TestNetworkBadness"],
       "env": {
-        "TEST_SEED": "2137282398"
+        "TEST_SEED": "1467554846"
       }
     }
   ]
