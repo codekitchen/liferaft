@@ -364,7 +364,6 @@ func (s *Raft) handleAppendEntries(msg *Message, req *AppendEntries) (ms []*Mess
 	s.log = appendNewEntries(s.log, req.PrevLogEntry.Index+1, req.Entries)
 	s.selfMember.matchIndex = len(s.log) - 1
 
-	// TODO: apply these commits syncronously? right now it happens at next tick.
 	if req.LeaderCommittedLength > s.committedLength {
 		s.committedLength = min(req.LeaderCommittedLength, len(s.log))
 	}
