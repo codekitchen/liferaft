@@ -110,7 +110,7 @@ func NewRaft(config *RaftConfig) *Raft {
 		raft.members[i] = &Member{
 			id:         id,
 			nextIndex:  0,
-			matchIndex: 0,
+			matchIndex: -1,
 			votedFor:   NoNode,
 		}
 		if id == config.ID {
@@ -452,7 +452,7 @@ func (s *Raft) winElection() {
 	s.role = Leader
 	for _, m := range s.members {
 		m.nextIndex = len(s.log)
-		m.matchIndex = 0
+		m.matchIndex = -1
 	}
 	// s.slog().Info("won election", "votes", s.voteCount(s.id))
 }
