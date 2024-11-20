@@ -223,9 +223,6 @@ func (s *Raft) HandleEvent(event Event) Updates {
 		// just ignoring the apply when not a leader isn't great,
 		// though callers should be checking that anyway since they have to handle forwarding to leader.
 		// But I'd like to figure out how to fit feedback on that into this state machine.
-		if s.role != Leader {
-			fmt.Printf("not the leader! ignoring")
-		}
 		if s.role == Leader {
 			s.log = append(s.log, Entry{
 				Term:     s.currentTerm,

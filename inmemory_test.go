@@ -11,9 +11,6 @@ import (
 	"time"
 )
 
-// TEST_SEED=984927255
-// add event tracing and output the trace on failure
-
 var exploreTest = flag.String("exploreTest", "", "run an exploration test")
 
 func TestNetworkBadness(t *testing.T) {
@@ -34,7 +31,9 @@ func TestNetworkBadness(t *testing.T) {
 			fmt.Fprintf(os.Stderr, "=== %s: elasped: %s, execs: %d (%d/sec)\n", t.Name(), time.Since(starttime).Truncate(time.Second), execs, execs/int(time.Since(starttime).Seconds()+1))
 		}
 		seed := int64(rand.Int31())
-		res := runOne(t, seed)
+		res := t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
+			runOne(t, seed)
+		})
 		if !res {
 			break
 		}
@@ -42,21 +41,18 @@ func TestNetworkBadness(t *testing.T) {
 	}
 }
 
-func runOne(t *testing.T, seed int64) bool {
-	success := t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
-		defer func() {
-			if t.Failed() {
-				t.Logf("TEST_SEED=%d", seed)
-			}
-		}()
-		cluster := NewInMemoryCluster(3, seed)
-		cluster.RunForTicks(1_000, func() {
-			leaderInvariant(t, cluster)
-			logInvariant(t, cluster)
-			electionSafetyInvariant(t, cluster)
-		})
+func runOne(t *testing.T, seed int64) {
+	defer func() {
+		if t.Failed() {
+			t.Logf("TEST_SEED=%d", seed)
+		}
+	}()
+	cluster := NewInMemoryCluster(3, seed)
+	cluster.RunForTicks(1_000, func() {
+		leaderInvariant(t, cluster)
+		logInvariant(t, cluster)
+		electionSafetyInvariant(t, cluster)
 	})
-	return success
 }
 
 // There should not be more than one leader for the same term at the same time.
