@@ -458,7 +458,11 @@ func (s *Raft) winElection() {
 }
 
 func (s *Raft) quorumSize() int {
-	return len(s.members)/2 + 1
+	return quorumSize(len(s.members))
+}
+
+func quorumSize(n int) int {
+	return n/2 + 1
 }
 
 func (s *Raft) slog() *slog.Logger {
