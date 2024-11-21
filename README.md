@@ -31,6 +31,8 @@ There is also a real-network wrapper which can be run in a 3-node cluster using 
 
 ## Testing Framework
 
+Since the simulation tests are unbounded and can run for arbitray time, like fuzz tests, they don't run by default. To run the [network test](inmemory_test.go): `go test . -exploreTest TestNetworkBadness -timeout 0`. Add `-v` for verbose status updates.
+
 There is an in-memory cluster implementation that can be used for repeatable testing. I am beginning to build a "chaos framework" on top of this, allowing for things like introducing network delays between specific nodes in the cluster.
 
 I've already seen success with these techniques, finding a bug in leader election when network responses are delayed to a later campaign. It took about 8 minutes running the (very un-optimized) randomized tests and checking the invariants to expose this bug, which otherwise could have very easily made it past other testing techniques and into "production".
