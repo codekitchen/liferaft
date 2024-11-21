@@ -48,10 +48,6 @@ func runOne(t *testing.T, seed int64) {
 	}()
 	cluster := NewInMemoryCluster(3, seed)
 	cluster.RunForTicks(1_000, func() {
-		leaderInvariant(t, cluster)
-		logInvariant(t, cluster)
-		logPrefixInvariant(t, cluster)
-		electionSafetyInvariant(t, cluster)
-		quorumLogInvariant(t, cluster)
+		allInvariants(t, cluster)
 	})
 }

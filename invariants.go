@@ -5,6 +5,16 @@ import (
 	"testing"
 )
 
+func allInvariants(t *testing.T, cluster *InMemoryCluster) {
+	leaderInvariant(t, cluster)
+	logInvariant(t, cluster)
+	logPrefixInvariant(t, cluster)
+	electionSafetyInvariant(t, cluster)
+	quorumLogInvariant(t, cluster)
+	moreUpToDateInvariant(t, cluster)
+	leaderCompletenessInvariant(t, cluster)
+}
+
 // There should not be more than one leader for the same term at the same time.
 func leaderInvariant(t *testing.T, cluster *InMemoryCluster) {
 	t.Helper()
@@ -90,6 +100,55 @@ func quorumLogInvariant(t *testing.T, cluster *InMemoryCluster) {
 			t.Fatalf("committed log for %s is not on majority of nodes", n)
 		}
 	}
+}
+
+// The "up-to-date" check performed by servers
+// before issuing a vote implies that i receives
+// a vote from j only if i has all of j's committed
+// entries
+func moreUpToDateInvariant(t *testing.T, cluster *InMemoryCluster) {
+	for i, n1 := range cluster.Nodes {
+		log1 := cluster.Nodemap[n1].Raft.log
+		for _, n2 := range cluster.Nodes[i+1:] {
+			log2 := cluster.Nodemap[n2].Raft.log
+			if lastTerm(log1) > lastTerm(log2) || (lastTerm(log1) == lastTerm(log2) && len(log1) >= len(log2)) {
+				if !logIsPrefix(cluster.Nodemap[n2].Raft.CommittedLog(), log1) {
+					t.Fatalf("committed log on %s isn't prefix of %s", n2, n1)
+				}
+			}
+		}
+	}
+}
+
+// If a log entry is committed in a given term, then that
+// entry will be present in the logs of the leaders
+// for all higher-numbered terms
+func leaderCompletenessInvariant(t *testing.T, cluster *InMemoryCluster) {
+	for _, n := range cluster.Nodes {
+		committed := cluster.Nodemap[n].Raft.CommittedLog()
+		if len(committed) == 0 {
+			continue
+		}
+		lastIdx := len(committed) - 1
+		for _, n2 := range cluster.Nodes {
+			r2 := cluster.Nodemap[n2].Raft
+			if n == n2 || r2.role != Leader {
+				continue
+			}
+			if r2.currentTerm > committed[lastIdx].Term {
+				if !entryEq(r2.log[lastIdx], committed[lastIdx]) {
+					t.Fatalf("committed log on %s does not match leader %s", n, n2)
+				}
+			}
+		}
+	}
+}
+
+func lastTerm(log []Entry) Term {
+	if len(log) == 0 {
+		return Term(0)
+	}
+	return log[len(log)-1].Term
 }
 
 func maxIndexForTerm(log []Entry, term Term) int {
