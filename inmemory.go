@@ -18,7 +18,8 @@ type InMemoryCluster struct {
 }
 
 type memnode struct {
-	Raft Raft
+	Raft  Raft
+	state *PersistentState
 }
 
 type memEvent struct {
@@ -94,6 +95,21 @@ func (c *InMemoryCluster) Run(minTicks, commitCount int, afterTick func()) {
 			}
 		}
 
+		crashedNodeIdx := c.r.Int() % 2_000
+		if crashedNodeIdx < len(c.Nodes) {
+			crashNode := c.Nodes[crashedNodeIdx]
+			// reboot this node
+			c.Nodemap[crashNode].Raft = *NewRaft(&RaftConfig{
+				ID:           crashNode,
+				Client:       nil,
+				Cluster:      c.Nodes,
+				RestoreState: c.Nodemap[crashNode].state,
+			})
+			// remove any messages that would have arrived this frame,
+			// to simulate the socket losing anything buffered during crash
+			cur = slices.DeleteFunc(cur, func(m memEvent) bool { return m.to == crashNode })
+		}
+
 		if c.r.Intn(50) == 0 {
 			// do an apply to the leader
 			cmdIdx++
@@ -124,6 +140,16 @@ func (c *InMemoryCluster) Run(minTicks, commitCount int, afterTick func()) {
 			}
 
 			updates := c.Nodemap[ev.to].Raft.HandleEvent(ev.ev)
+			if updates.Persist != nil {
+				// simulate serializing the state
+				logCopy := make([]Entry, len(updates.Persist.Log))
+				copy(logCopy, updates.Persist.Log)
+				c.Nodemap[ev.to].state = &PersistentState{
+					CurrentTerm: updates.Persist.CurrentTerm,
+					VotedFor:    updates.Persist.VotedFor,
+					Log:         logCopy,
+				}
+			}
 			for _, msg := range updates.Outgoing {
 				cur = append(cur, memEvent{ev: msg, to: msg.To})
 			}

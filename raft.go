@@ -84,6 +84,7 @@ type RaftConfig struct {
 	Cluster             []NodeID // must contain self as well
 	HeartBeatTick       uint
 	ElectionTimeoutTick uint
+	RestoreState        *PersistentState // existing node, restore from this state
 }
 
 func NewRaft(config *RaftConfig) *Raft {
@@ -117,6 +118,11 @@ func NewRaft(config *RaftConfig) *Raft {
 			raft.selfMember = raft.members[i]
 		}
 	}
+
+	if config.RestoreState != nil {
+		raft.restoreFromState(config.RestoreState)
+	}
+
 	return raft
 }
 
@@ -520,4 +526,10 @@ func (s *Raft) sendHeartbeat() (ms []*Message) {
 		})
 	}
 	return
+}
+
+func (s *Raft) restoreFromState(state *PersistentState) {
+	s.currentTerm = state.CurrentTerm
+	s.log = state.Log
+	s.selfMember.votedFor = state.VotedFor
 }

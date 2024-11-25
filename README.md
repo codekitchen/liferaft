@@ -25,7 +25,7 @@ There is also a real-network wrapper which can be run in a 3-node cluster using 
 - [x] Log Commits and Applies
 - [x] Network Latency Testing
 - [x] Add the rest of the tla+ spec invariants
-- [ ] Simulate node failures/crashes
+- [x] Simulate node failures/crashes
 - [ ] Simulate completely dropped messages
 - [ ] Simulate disk failures
 
@@ -49,6 +49,7 @@ I gave a short 5-minute presentation on finding and fixing this bug, the slides 
 - The [Hermit project](https://github.com/facebookexperimental/hermit) from Facebook tries to accomplish the same thing in a different way, by hooking into syscalls. Development seems to be paused.
 - The [rr project](https://rr-project.org) looks like a similar idea to Hermit, but possibly more active. I definitely need to look into this more.
 - [A Deterministic Walk Down TigerBeetle’s main() Street](https://www.youtube.com/watch?v=AGxAnkrhDGY) is a quick 15 minute overview of "TigerBeetle Style" deterministic distributed systems programming.
+- [Designing Dope Distributed Systems for Outer Space with High-Fidelity Simulation](https://youtu.be/prM-0i58XBM)
 - There are a few interesting Rust libraries in this space.
   - [Shuttle](https://github.com/awslabs/shuttle) is an AWS library for randomized deterministic testing of Rust programs. Very cool that the core S3 storage node service is now written in Rust, and tested with Shuttle.
   - [Loom](https://github.com/tokio-rs/loom) is a Tokio project for exhaustive deterministic testing of Rust programs. It explores the entire state space, rather than sampling it like Shuttle does. But this means it can only complete when the state space is relatively small, which makes it only viable for smaller programs.
