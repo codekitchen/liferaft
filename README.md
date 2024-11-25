@@ -12,7 +12,7 @@ The core of this Raft implementation is a "pure" deterministic state machine. Gi
 
 Of course, this precludes doing anything dirty like actually talking to network or disk, or even using timers in some ways. Those concerns are built as layers on top of the core Raft protocol.
 
-This necessarily makes the code a little less idiomatic for Go -- for instance, even a core language feature like `select` is intentionally non-deterministic when more than one channel is ready, so we can't use `select` in the core Raft logic. More sources of non-determinism in Go are covered in [the notes](docs/NOTES.md).
+This necessarily makes the code a little less idiomatic for Go -- for instance, even a core language feature like `select` is intentionally non-deterministic when more than one channel is ready, so we would have to be very careful about using `select` in the core Raft logic. Right now I'm just not using `select` at all, but I have some ideas there. More sources of non-determinism in Go are covered in [the notes](docs/NOTES.md).
 
 ## Status
 
@@ -24,7 +24,7 @@ There is also a real-network wrapper which can be run in a 3-node cluster using 
 - [x] Log Replication
 - [x] Log Commits and Applies
 - [x] Network Latency Testing
-- [ ] Add the rest of the tla+ spec invariants
+- [x] Add the rest of the tla+ spec invariants
 - [ ] Simulate node failures/crashes
 - [ ] Simulate completely dropped messages
 - [ ] Simulate disk failures
@@ -48,6 +48,7 @@ I gave a short 5-minute presentation on finding and fixing this bug, the slides 
 - [Antithesis](https://antithesis.com) is an interesting, very general solution (deterministic VM!) from some of the same people behind FoundationDB. Closed source.
 - The [Hermit project](https://github.com/facebookexperimental/hermit) from Facebook tries to accomplish the same thing in a different way, by hooking into syscalls. Development seems to be paused.
 - The [rr project](https://rr-project.org) looks like a similar idea to Hermit, but possibly more active. I definitely need to look into this more.
+- [A Deterministic Walk Down TigerBeetle’s main() Street](https://www.youtube.com/watch?v=AGxAnkrhDGY) is a quick 15 minute overview of "TigerBeetle Style" deterministic distributed systems programming.
 - There are a few interesting Rust libraries in this space.
   - [Shuttle](https://github.com/awslabs/shuttle) is an AWS library for randomized deterministic testing of Rust programs. Very cool that the core S3 storage node service is now written in Rust, and tested with Shuttle.
   - [Loom](https://github.com/tokio-rs/loom) is a Tokio project for exhaustive deterministic testing of Rust programs. It explores the entire state space, rather than sampling it like Shuttle does. But this means it can only complete when the state space is relatively small, which makes it only viable for smaller programs.
