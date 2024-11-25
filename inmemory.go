@@ -2,6 +2,7 @@ package liferaft
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"slices"
 )
@@ -55,11 +56,17 @@ func NewInMemoryCluster(numNodes int, seed int64) *InMemoryCluster {
 	return cluster
 }
 
-func (c *InMemoryCluster) RunForTicks(ticks uint, afterTick func()) {
+func (c *InMemoryCluster) Run(minTicks, commitCount int, afterTick func()) {
 	var next []memEvent
 	cmdIdx := 0
+	tick := 0
 
-	for range ticks {
+	for {
+		tick++
+		if tick >= minTicks && c.commitCount() > commitCount {
+			return
+		}
+
 		cur := next
 		next = nil
 
@@ -126,4 +133,12 @@ func (c *InMemoryCluster) RunForTicks(ticks uint, afterTick func()) {
 			afterTick()
 		}
 	}
+}
+
+func (c *InMemoryCluster) commitCount() int {
+	count := math.MaxInt
+	for _, n := range c.Nodes {
+		count = min(c.Nodemap[n].Raft.committedLength, count)
+	}
+	return count
 }

@@ -47,7 +47,7 @@ func runOne(t *testing.T, seed int64) {
 		}
 	}()
 	cluster := NewInMemoryCluster(3, seed)
-	cluster.RunForTicks(1_000, func() {
+	cluster.Run(1_000, 10, func() {
 		allInvariants(t, cluster)
 	})
 }
