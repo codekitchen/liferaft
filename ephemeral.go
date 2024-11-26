@@ -13,7 +13,7 @@ import (
 )
 
 type result struct {
-	res []byte
+	res any
 	err error
 }
 type resultChan chan result
@@ -39,7 +39,7 @@ type node struct {
 }
 
 func StartEphemeralNode(client Client, selfAddr string, otherAddrs []string) *EphemeralRPCNode {
-	gobInit()
+	GobInit()
 
 	id := NodeID(selfAddr)
 	cluster := []NodeID{id}
@@ -69,7 +69,7 @@ func StartEphemeralNode(client Client, selfAddr string, otherAddrs []string) *Ep
 	return n
 }
 
-func (n *EphemeralRPCNode) Apply(cmd []byte) ([]byte, error) {
+func (n *EphemeralRPCNode) Apply(cmd []byte) (any, error) {
 	waiter := make(resultChan, 1)
 	clientID := uuid.New().String()
 	n.mu.Lock()
@@ -204,7 +204,7 @@ func (n *EphemeralRPCNode) Stop() {
 	close(n.stop)
 }
 
-func gobInit() {
+func GobInit() {
 	gob.Register((*RequestVote)(nil))
 	gob.Register((*RequestVoteResponse)(nil))
 	gob.Register((*AppendEntries)(nil))

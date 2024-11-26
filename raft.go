@@ -6,10 +6,10 @@ import (
 )
 
 type Client interface {
-	Apply(cmd []byte) ([]byte, error)
+	Apply(cmd []byte) (any, error)
 }
 
-type NodeID string
+type NodeID = string
 
 const NoNode NodeID = ""
 
@@ -124,6 +124,14 @@ func NewRaft(config *RaftConfig) *Raft {
 	}
 
 	return raft
+}
+
+func (s *Raft) IsLeader() bool {
+	return s.role == Leader
+}
+
+func (s *Raft) LeaderID() NodeID {
+	return s.leaderID
 }
 
 type Message struct {
