@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 
+	"math/rand"
+
 	"github.com/codekitchen/liferaft"
 	kv "github.com/codekitchen/liferaft/kv"
 )
@@ -20,9 +22,16 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
+	allAddrs := append(others, *selfAddr)
 
 	store := kv.NewKVStore()
-	node := liferaft.StartEphemeralNode(store, *selfAddr, others)
+	rpc := liferaft.NewGoRPC(*selfAddr, allAddrs)
+	raft := liferaft.NewRaft(&liferaft.RaftConfig{
+		ID:                  *selfAddr,
+		Cluster:             allAddrs,
+		ElectionTimeoutTick: uint(8 + rand.Intn(6)),
+	})
+	node := liferaft.StartEphemeralNode(store, rpc, raft)
 	defer node.Stop()
 
 	scanner := bufio.NewScanner(os.Stdin)

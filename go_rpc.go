@@ -18,12 +18,12 @@ type goRPCNode struct {
 	rpcClient *rpc.Client
 }
 
-func NewGoRPC(selfAddr string, otherAddrs []string) *GoRPC {
+func NewGoRPC(selfAddr string, allAddrs []string) *GoRPC {
 	rpc := &GoRPC{
 		selfAddr: selfAddr,
 		nodes:    make(map[string]*goRPCNode),
 	}
-	for _, addr := range otherAddrs {
+	for _, addr := range allAddrs {
 		rpc.nodes[NodeID(addr)] = &goRPCNode{address: addr}
 	}
 	return rpc

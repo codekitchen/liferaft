@@ -7,8 +7,8 @@ import (
 	"sync"
 )
 
-var KeyNotFoundError = fmt.Errorf("key not found")
-var CASMismatchError = fmt.Errorf("CAS mismatch")
+var ErrKeyNotFound = fmt.Errorf("key not found")
+var ErrCASMismatch = fmt.Errorf("CAS mismatch")
 
 type Store struct {
 	mu   sync.RWMutex
@@ -74,16 +74,16 @@ func (s *Store) Apply(cmd []byte) (any, error) {
 	case "get":
 		val, ok := s.Get(c.Key)
 		if !ok {
-			return nil, KeyNotFoundError
+			return nil, ErrKeyNotFound
 		}
 		return val, nil
 	case "cas":
 		haskey, casok := s.CAS(c.Key, c.From, c.To)
 		fmt.Fprintf(os.Stderr, "cas-op %s from %v to %v (%v, %v)\n", c.Key, c.From, c.To, haskey, casok)
 		if !haskey {
-			return nil, KeyNotFoundError
+			return nil, ErrKeyNotFound
 		} else if !casok {
-			return nil, CASMismatchError
+			return nil, ErrCASMismatch
 		}
 		return nil, nil
 	}

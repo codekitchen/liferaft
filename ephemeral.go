@@ -1,7 +1,7 @@
 package liferaft
 
 import (
-	"math/rand"
+	"fmt"
 	"sync"
 	"time"
 
@@ -14,12 +14,14 @@ type result struct {
 }
 type resultChan chan result
 
+var ErrApplyTimeout = fmt.Errorf("apply timed out")
+
 // For ephemeral nodes, the address is the ID.
 // This makes it unsafe to restart a server once it has stopped, unless you restart the whole cluster.
 type EphemeralRPCNode struct {
 	mu sync.Mutex
 
-	raft     Raft
+	raft     *Raft
 	rpc      RaftRPC
 	stop     chan struct{}
 	incoming chan *Message
@@ -34,21 +36,11 @@ type RaftRPC interface {
 	Run(incoming chan<- *Message, outgoing <-chan *Message)
 }
 
-func StartEphemeralNode(client Client, selfAddr string, otherAddrs []string) *EphemeralRPCNode {
-	id := NodeID(selfAddr)
-	cluster := []NodeID{id}
-	for _, addr := range otherAddrs {
-		cluster = append(cluster, NodeID(addr))
-	}
-
+func StartEphemeralNode(client Client, rpc RaftRPC, raft *Raft) *EphemeralRPCNode {
 	n := &EphemeralRPCNode{
-		client: client,
-		raft: *NewRaft(&RaftConfig{
-			ID:                  id,
-			Cluster:             cluster,
-			ElectionTimeoutTick: uint(8 + rand.Intn(6)),
-		}),
-		rpc:            NewGoRPC(selfAddr, otherAddrs),
+		client:         client,
+		raft:           raft,
+		rpc:            rpc,
 		stop:           make(chan struct{}),
 		incoming:       make(chan *Message, 100),
 		outgoing:       make(chan *Message, 100),
@@ -67,18 +59,22 @@ func (n *EphemeralRPCNode) Apply(cmd []byte) (any, error) {
 	n.mu.Lock()
 	n.waitingApplies[clientID] = waiter
 	n.mu.Unlock()
+	defer func() {
+		n.mu.Lock()
+		delete(n.waitingApplies, clientID)
+		n.mu.Unlock()
+	}()
 	apply := &Apply{
 		Cmd:      cmd,
 		ClientID: clientID,
 	}
 	n.applies <- apply
-	// TODO: need timeout here
-	result := <-waiter
-	close(waiter)
-	n.mu.Lock()
-	delete(n.waitingApplies, clientID)
-	n.mu.Unlock()
-	return result.res, result.err
+	select {
+	case result := <-waiter:
+		return result.res, result.err
+	case <-time.After(time.Second):
+		return nil, ErrApplyTimeout
+	}
 }
 
 func (n *EphemeralRPCNode) run() {
