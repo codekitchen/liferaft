@@ -16,7 +16,7 @@ This necessarily makes the code a little less idiomatic for Go -- for instance, 
 
 ## Status
 
-The core Raft algorithm is implemented. There is a deterministic simulation testing framework starting to take shape in [the tests](raft_test.go). The only failure mode tested so far is network latency, but that has already uncovered a few bugs and helped build confidence in the implementation. The tests check seven invariants from the [etcd raft tla+ spec](https://github.com/etcd-io/raft/blob/main/tla/etcdraft.tla) after each step.
+The core Raft algorithm is implemented. There is a deterministic simulation testing framework starting to take shape in [the tests](raft_test.go). The only failure modes tested so far are network latency and crashed/restarted nodes, but that has already uncovered a few bugs and helped build confidence in the implementation. The tests check seven invariants from the [etcd raft tla+ spec](https://github.com/etcd-io/raft/blob/main/tla/etcdraft.tla) after each step.
 
 There is also a real-network wrapper which can be run in a 3-node cluster using the [Procfile](Procfile). It provides a simple CLI for a distributed key/value store with `get x` and `set x y` commands. It can be run with [overmind](https://github.com/DarthSim/overmind) and then you can use `overmind connect <procname>` to connect to a CLI and interact with it. Commands are forwarded to the leader node when necessary. It only works ephemerally right now, it doesn't save state to disk.
 
