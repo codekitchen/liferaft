@@ -41,6 +41,8 @@ But once a failing test case is found, we can re-run it at will! This is such a 
 
 I gave a short 5-minute presentation on finding and fixing this bug, the slides are [here in the repo](docs/first_success.md).
 
+A handful of [further bugs](docs/bugs_found.md) have been found using this DST framework.
+
 ### Testing with Jepsen Maelstrom
 
 There is a binary available for testing the raft implementation using [Maelstrom's](https://github.com/jepsen-io/maelstrom) linearizable key-value store workload.
