@@ -7,7 +7,7 @@
 - [ ] output traces of events, and support them for re-running a test (possibly more stable alternative to rng seed)
 - [x] other types of badness: failing nodes, duplicate packets, etc
 - [x] how long to run each test for? 1000 steps is arbitrary
-- [ ] run this raft code against [maelstrom](https://github.com/jepsen-io/maelstrom)
+- [x] run this raft code against [maelstrom](https://github.com/jepsen-io/maelstrom)
 - [ ] try using go fuzz testing with a form of [sometimes assertions](https://antithesis.com/docs/best_practices/sometimes_assertions/) to guide the fuzzer toward interesting states. need to think about this more and read how go fuzz testing directs itself toward uncovered code.
 
 ## Sources of Non-Determinism in Go

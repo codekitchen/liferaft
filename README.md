@@ -41,6 +41,18 @@ But once a failing test case is found, we can re-run it at will! This is such a 
 
 I gave a short 5-minute presentation on finding and fixing this bug, the slides are [here in the repo](docs/first_success.md).
 
+### Testing with Jepsen Maelstrom
+
+There is a binary available for testing the raft implementation using [Maelstrom's](https://github.com/jepsen-io/maelstrom) linearizable key-value store workload.
+
+```bash
+$ go build ./cmd/maelstrom_client
+# then from the maelstrom repo, with everything set up
+$ ./maelstrom test -w lin-kv --bin ../liferaft/maelstrom_client --node-count 3 --concurrency 4n --rate 30 --time-limit 60 --nemesis partition --nemesis-interval 10 --test-count 10
+```
+
+So far, Maelstrom hasn't found any bugs.
+
 ## Further Reading on Deterministic Simulation Techniques
 
 - [Deterministic Simulation link collection](https://asatarin.github.io/testing-distributed-systems/#deterministic-simulation)
@@ -64,3 +76,4 @@ I am hoping that my explorations in this repo will help me better understand wha
 
 After the fact, I found [this blog post](https://www.polarsignals.com/blog/posts/2024/05/28/mostly-dst-in-go) from Polar Signals which talks about their adventure in trying to introduce a deterministic mode to Go. They followed most of the same path I did and made many of the same discoveries and decisions. I haven't tried using WASM compiles to work around schedule nondeterminism though.
 
+Go has an experimental new [synctest](https://github.com/golang/go/issues/67434) testing package that could be of use here, it allows controlling time and waiting on goroutines to avoid nondeterminism. I need to experiment with it.
