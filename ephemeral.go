@@ -1,11 +1,7 @@
 package liferaft
 
 import (
-	"encoding/gob"
-	"log"
 	"math/rand"
-	"net"
-	"net/rpc"
 	"sync"
 	"time"
 
@@ -24,23 +20,21 @@ type EphemeralRPCNode struct {
 	mu sync.Mutex
 
 	raft     Raft
+	rpc      RaftRPC
 	stop     chan struct{}
 	incoming chan *Message
+	outgoing chan *Message
 	applies  chan *Apply
-	nodes    map[NodeID]*node
 	client   Client
 
 	waitingApplies map[string]resultChan
 }
 
-type node struct {
-	address   string
-	rpcClient *rpc.Client
+type RaftRPC interface {
+	Run(incoming chan<- *Message, outgoing <-chan *Message)
 }
 
 func StartEphemeralNode(client Client, selfAddr string, otherAddrs []string) *EphemeralRPCNode {
-	GobInit()
-
 	id := NodeID(selfAddr)
 	cluster := []NodeID{id}
 	for _, addr := range otherAddrs {
@@ -54,17 +48,15 @@ func StartEphemeralNode(client Client, selfAddr string, otherAddrs []string) *Ep
 			Cluster:             cluster,
 			ElectionTimeoutTick: uint(8 + rand.Intn(6)),
 		}),
-		nodes:          make(map[NodeID]*node),
+		rpc:            NewGoRPC(selfAddr, otherAddrs),
 		stop:           make(chan struct{}),
 		incoming:       make(chan *Message, 100),
+		outgoing:       make(chan *Message, 100),
 		applies:        make(chan *Apply),
 		waitingApplies: make(map[string]resultChan),
 	}
-	for _, addr := range otherAddrs {
-		n.nodes[NodeID(addr)] = &node{address: addr}
-	}
 
-	go n.runRPC(selfAddr)
+	go n.rpc.Run(n.incoming, n.outgoing)
 	go n.run()
 	return n
 }
@@ -101,10 +93,6 @@ func (n *EphemeralRPCNode) run() {
 		case msg := <-n.incoming:
 			event = msg
 		case apply := <-n.applies:
-			if n.raft.role != Leader {
-				n.relayApplyToLeader(apply)
-				continue
-			}
 			event = apply
 		case <-n.stop:
 			return
@@ -123,90 +111,12 @@ func (n *EphemeralRPCNode) run() {
 			}
 		}
 		for _, msg := range updates.Outgoing {
-			n.sendRPC(msg)
+			n.outgoing <- msg
 		}
 	}
-}
-
-func (n *EphemeralRPCNode) sendRPC(msg *Message) {
-	client := n.nodes[msg.To]
-	if client == nil {
-		log.Fatal("attempt to send message to unknown node", msg)
-	}
-	var err error
-
-	if client.rpcClient == nil {
-		client.rpcClient, err = rpc.Dial("tcp", client.address)
-	}
-	if err == nil {
-		err = client.rpcClient.Call("Ephemeral.Receive", msg, nil)
-	}
-
-	if err != nil {
-		// slog.Error("failed to send message to node", "msg", msg, "error", err)
-		if client.rpcClient != nil {
-			client.rpcClient.Close()
-			client.rpcClient = nil
-		}
-	}
-}
-
-func (n *EphemeralRPCNode) relayApplyToLeader(apply *Apply) {
-	to := n.raft.leaderID
-	if to == NoNode {
-		// TODO: get this error back to the client
-		return
-	}
-	client := n.nodes[to]
-	if client == nil {
-		log.Fatal("invalid leader node id")
-	}
-	var err error
-
-	if client.rpcClient == nil {
-		client.rpcClient, err = rpc.Dial("tcp", client.address)
-	}
-	if err == nil {
-		err = client.rpcClient.Call("Ephemeral.RelayApply", apply, nil)
-	}
-
-	if err != nil {
-		// slog.Error("failed to send message to node", "msg", msg, "error", err)
-		if client.rpcClient != nil {
-			client.rpcClient.Close()
-			client.rpcClient = nil
-		}
-	}
-}
-
-// TODO: rsp is unused here, how to model that?
-func (n *EphemeralRPCNode) Receive(msg *Message, rsp *Message) error {
-	n.incoming <- msg
-	return nil
-}
-
-func (n *EphemeralRPCNode) RelayApply(apply *Apply, rsp *Apply) error {
-	n.applies <- apply
-	return nil
-}
-
-func (n *EphemeralRPCNode) runRPC(listenAddr string) {
-	server := rpc.NewServer()
-	server.RegisterName("Ephemeral", n)
-	l, err := net.Listen("tcp", listenAddr)
-	if err != nil {
-		panic(err)
-	}
-	server.Accept(l)
 }
 
 func (n *EphemeralRPCNode) Stop() {
 	close(n.stop)
-}
-
-func GobInit() {
-	gob.Register((*RequestVote)(nil))
-	gob.Register((*RequestVoteResponse)(nil))
-	gob.Register((*AppendEntries)(nil))
-	gob.Register((*AppendEntriesResponse)(nil))
+	close(n.outgoing)
 }

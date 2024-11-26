@@ -182,10 +182,16 @@ type AppendEntriesResponse struct {
 	SentEntries bool
 }
 
+// gossip apply to the leader node
+type RelayApply struct {
+	Apply *Apply
+}
+
 func (r *RequestVote) isRaftRPC()           {}
 func (r *RequestVoteResponse) isRaftRPC()   {}
 func (r *AppendEntries) isRaftRPC()         {}
 func (r *AppendEntriesResponse) isRaftRPC() {}
+func (r *RelayApply) isRaftRPC()            {}
 
 type Updates struct {
 	Persist  *PersistentState
@@ -232,11 +238,18 @@ func (s *Raft) HandleEvent(event Event) Updates {
 			ms = s.handleAppendEntries(event, rpc)
 		case *AppendEntriesResponse:
 			ms = s.handleAppendEntriesResponse(event, rpc)
+		case *RelayApply:
+			if s.role == Leader {
+				s.log = append(s.log, Entry{
+					Term:     s.currentTerm,
+					Cmd:      rpc.Apply.Cmd,
+					ClientID: rpc.Apply.ClientID,
+				})
+				ms = s.sendHeartbeat()
+			}
+			// if we aren't leader anymore, have to drop it and wait for timeout/retry
 		}
 	case *Apply:
-		// just ignoring the apply when not a leader isn't great,
-		// though callers should be checking that anyway since they have to handle forwarding to leader.
-		// But I'd like to figure out how to fit feedback on that into this state machine.
 		if s.role == Leader {
 			s.log = append(s.log, Entry{
 				Term:     s.currentTerm,
@@ -244,6 +257,8 @@ func (s *Raft) HandleEvent(event Event) Updates {
 				ClientID: event.ClientID,
 			})
 			ms = s.sendHeartbeat()
+		} else {
+			ms = s.relayApplyToLeader(event)
 		}
 	default:
 		panic(fmt.Sprintf("invalid type passed to HandleEvent %#v", event))
@@ -533,6 +548,25 @@ func (s *Raft) sendHeartbeat() (ms []*Message) {
 			Contents: rpc,
 		})
 	}
+	return
+}
+
+func (s *Raft) relayApplyToLeader(apply *Apply) (ms []*Message) {
+	if s.leaderID == NoNode {
+		// would be nice to get this back to the client somehow,
+		// so they can retry sooner than their overall apply timeout.
+		return
+	}
+
+	ms = append(ms, &Message{
+		From: s.id,
+		To:   s.leaderID,
+		Term: s.currentTerm,
+		Contents: &RelayApply{
+			Apply: apply,
+		},
+	})
+
 	return
 }
 
