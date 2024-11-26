@@ -26,12 +26,12 @@ func main() {
 
 	store := kv.NewKVStore()
 	rpc := liferaft.NewGoRPC(*selfAddr, allAddrs)
-	raft := liferaft.NewRaft(&liferaft.RaftConfig{
+	persist := &liferaft.EphemeralPersistence{}
+	node := liferaft.StartRaftNode(store, rpc, persist, &liferaft.RaftConfig{
 		ID:                  *selfAddr,
 		Cluster:             allAddrs,
 		ElectionTimeoutTick: uint(8 + rand.Intn(6)),
 	})
-	node := liferaft.StartEphemeralNode(store, rpc, raft)
 	defer node.Stop()
 
 	scanner := bufio.NewScanner(os.Stdin)

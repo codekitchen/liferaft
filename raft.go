@@ -2,7 +2,6 @@ package liferaft
 
 import (
 	"fmt"
-	"log/slog"
 )
 
 type Client interface {
@@ -276,7 +275,6 @@ func (s *Raft) HandleEvent(event Event) Updates {
 func (s *Raft) startElection() (ms []*Message) {
 	s.role = Candidate
 	s.updateTerm(s.currentTerm + 1)
-	// s.slog().Info("starting election")
 	ms = append(ms, s.gotVote(s.id)...) // got our own vote!
 	ms = append(ms, s.sendToAllButSelf(&RequestVote{
 		LastLogEntry: s.logStatus(),
@@ -334,7 +332,6 @@ func (s *Raft) gotVote(from NodeID) []*Message {
 	s.member(from).votedFor = s.id
 	// If votes received from majority of servers : become leader
 	meCount := s.voteCount(s.id)
-	// s.slog().Info("vote response", "from", from, "meCount", meCount, "quorumSize", s.quorumSize())
 	if meCount >= s.quorumSize() {
 		s.winElection()
 		// send empty AppendEntries RPC to each server
@@ -483,7 +480,6 @@ func (s *Raft) winElection() {
 		m.nextIndex = len(s.log)
 		m.matchIndex = -1
 	}
-	// s.slog().Info("won election", "votes", s.voteCount(s.id))
 }
 
 func (s *Raft) quorumSize() int {
@@ -492,10 +488,6 @@ func (s *Raft) quorumSize() int {
 
 func quorumSize(n int) int {
 	return n/2 + 1
-}
-
-func (s *Raft) slog() *slog.Logger {
-	return slog.With(slog.Group("raft", "id", s.id, "currentTerm", s.currentTerm, "role", s.role))
 }
 
 func (s *Raft) updateTerm(term Term) {

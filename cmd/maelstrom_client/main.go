@@ -38,6 +38,7 @@ func errorBodyFor(err error) *BodyError {
 func main() {
 	store := kv.NewKVStore()
 	rpc := NewMaelstromRPC()
+	persist := &liferaft.EphemeralPersistence{}
 	incoming := make(chan *Message)
 	go rpc.RunMaelstrom(incoming)
 
@@ -48,12 +49,11 @@ func main() {
 	var init BodyInit
 	initMsg.ParseBody(&init)
 
-	raft := liferaft.NewRaft(&liferaft.RaftConfig{
+	node := liferaft.StartRaftNode(store, rpc, persist, &liferaft.RaftConfig{
 		ID:                  init.NodeID,
 		Cluster:             init.NodeIDs,
 		ElectionTimeoutTick: uint(8 + rand.Intn(6)),
 	})
-	node := liferaft.StartEphemeralNode(store, rpc, raft)
 	rpc.reply(initMsg, "init_ok", &Body{})
 
 	for msg := range incoming {
@@ -119,6 +119,8 @@ func perr(err error) {
 
 func anyToString(v any) string {
 	switch c := v.(type) {
+	case nil:
+		panic("type is nil")
 	case string:
 		return c
 	case int:
