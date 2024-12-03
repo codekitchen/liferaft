@@ -32,6 +32,7 @@ func errorBodyFor(err error) *BodyError {
 		code = MaelstromErrorPreconditionFailed
 	case liferaft.ErrApplyTimeout:
 		code = MaelstromErrorTimeout
+	case liferaft.ErrUnavailable:
 		code = MaelstromErrorTemporarilyUnavailable
 	}
 	return &BodyError{Code: code}

@@ -119,7 +119,11 @@ func (n *RaftNode) run() {
 		}
 
 		for _, a := range updates.Apply {
-			res, err := n.client.Apply(a.Cmd)
+			err := a.Err
+			var res any
+			if err == nil {
+				res, err = n.client.Apply(a.Cmd)
+			}
 			n.mu.Lock()
 			waiter, ok := n.waitingApplies[a.ClientID]
 			delete(n.waitingApplies, a.ClientID)

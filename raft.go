@@ -4,6 +4,8 @@ import (
 	"fmt"
 )
 
+var ErrUnavailable = fmt.Errorf("no leader node available")
+
 type Client interface {
 	Apply(cmd []byte) (any, error)
 }
@@ -23,6 +25,12 @@ type PersistentState struct {
 type Entry struct {
 	Term     Term
 	Cmd      []byte
+	ClientID string
+}
+
+type ApplyResult struct {
+	Cmd      []byte
+	Err      error
 	ClientID string
 }
 
@@ -194,7 +202,7 @@ func (r *RelayApply) isRaftRPC()            {}
 
 type Updates struct {
 	Persist  *PersistentState
-	Apply    []Entry
+	Apply    []ApplyResult
 	Outgoing []*Message
 }
 
@@ -256,6 +264,11 @@ func (s *Raft) HandleEvent(event Event) Updates {
 				ClientID: event.ClientID,
 			})
 			ms = s.sendHeartbeat()
+		} else if s.leaderID == NoNode {
+			updates.Apply = append(updates.Apply, ApplyResult{
+				Err:      ErrUnavailable,
+				ClientID: event.ClientID,
+			})
 		} else {
 			ms = s.relayApplyToLeader(event)
 		}
@@ -264,7 +277,12 @@ func (s *Raft) HandleEvent(event Event) Updates {
 	}
 	// If commitIndex > lastApplied: increment lastApplied, apply log[lastAppiled] to state machine (§5.3)
 	if s.appliedLength < s.committedLength {
-		updates.Apply = s.log[s.appliedLength:s.committedLength]
+		for _, e := range s.log[s.appliedLength:s.committedLength] {
+			updates.Apply = append(updates.Apply, ApplyResult{
+				Cmd:      e.Cmd,
+				ClientID: e.ClientID,
+			})
+		}
 		s.appliedLength = s.committedLength
 	}
 
@@ -544,12 +562,6 @@ func (s *Raft) sendHeartbeat() (ms []*Message) {
 }
 
 func (s *Raft) relayApplyToLeader(apply *Apply) (ms []*Message) {
-	if s.leaderID == NoNode {
-		// would be nice to get this back to the client somehow,
-		// so they can retry sooner than their overall apply timeout.
-		return
-	}
-
 	ms = append(ms, &Message{
 		From: s.id,
 		To:   s.leaderID,
