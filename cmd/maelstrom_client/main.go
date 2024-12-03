@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	MaelstromErrorTimeout                = 0
 	MaelstromErrorTemporarilyUnavailable = 11
 	MaelstromErrorAbort                  = 14
 	MaelstromErrorKeyDoesNotExist        = 20
@@ -30,6 +31,7 @@ func errorBodyFor(err error) *BodyError {
 	case kv.ErrCASMismatch:
 		code = MaelstromErrorPreconditionFailed
 	case liferaft.ErrApplyTimeout:
+		code = MaelstromErrorTimeout
 		code = MaelstromErrorTemporarilyUnavailable
 	}
 	return &BodyError{Code: code}
