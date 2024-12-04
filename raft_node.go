@@ -93,7 +93,7 @@ type result struct {
 type resultChan chan result
 
 func (n *RaftNode) run() {
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
