@@ -46,7 +46,8 @@ func runOne(t *testing.T, seed int64) {
 			t.Logf("TEST_SEED=%d", seed)
 		}
 	}()
-	cluster := NewInMemoryCluster(3, seed)
+	r := rand.New(rand.NewSource(seed))
+	cluster := NewInMemoryCluster(r.Intn(6)+2, r)
 	cluster.Run(1_000, 10, func() {
 		allInvariants(t, cluster)
 	})
