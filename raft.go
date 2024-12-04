@@ -386,6 +386,9 @@ func (s *Raft) handleAppendEntries(msg *Message, req *AppendEntries) (ms []*Mess
 		Contents: res,
 	}}
 
+	if s.role == Leader {
+		panic("got appendEntries for term where I am leader!")
+	}
 	if s.role == Candidate {
 		// If AppendEntriesRPC received from new leader: convert to follower
 		s.role = Follower
@@ -415,6 +418,13 @@ func (s *Raft) handleAppendEntries(msg *Message, req *AppendEntries) (ms []*Mess
 
 	// append any new entries not already in the log
 	s.log = appendNewEntries(s.log, req.PrevLogEntry.Index+1, req.Entries)
+	// remove any trailing entries if they're for previous terms
+	leaderLen := req.PrevLogEntry.Index + 1 + len(req.Entries)
+	if len(req.Entries) > 0 && leaderLen < len(s.log) {
+		if s.log[leaderLen].Term < req.Entries[len(req.Entries)-1].Term {
+			s.log = s.log[0:leaderLen]
+		}
+	}
 	s.selfMember.matchIndex = len(s.log) - 1
 
 	if req.LeaderCommittedLength > s.committedLength {
