@@ -471,7 +471,7 @@ func (s *Raft) checkForCommits() {
 		}
 		count := 0
 		for _, m := range s.members {
-			if m.matchIndex >= n {
+			if m == s.selfMember || m.matchIndex >= n {
 				count++
 			}
 		}
