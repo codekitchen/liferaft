@@ -293,6 +293,7 @@ func (s *Raft) HandleEvent(event Event) Updates {
 func (s *Raft) startElection() (ms []*Message) {
 	s.role = Candidate
 	s.updateTerm(s.currentTerm + 1)
+	s.ticks = 0
 	ms = append(ms, s.gotVote(s.id)...) // got our own vote!
 	ms = append(ms, s.sendToAllButSelf(&RequestVote{
 		LastLogEntry: s.logStatus(),
@@ -510,7 +511,7 @@ func quorumSize(n int) int {
 
 func (s *Raft) updateTerm(term Term) {
 	s.currentTerm = term
-	s.ticks = 0
+	s.leaderID = NoNode
 	for _, m := range s.members {
 		m.votedFor = NoNode
 	}
