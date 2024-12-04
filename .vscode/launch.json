@@ -13,7 +13,7 @@
       "args": ["-exploreTest", "TestNetworkBadness", "-test.run", "TestNetworkBadness"],
       "env": {
         // "TEST_SEED": "2044929431"
-        "TEST_SEED": "1753846254"
+        "TEST_SEED": "1565039984"
       }
     },
     {

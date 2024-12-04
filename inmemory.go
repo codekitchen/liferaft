@@ -101,23 +101,20 @@ func (c *InMemoryCluster) Run(minTicks, commitCount int, afterTick func()) {
 			}
 		}
 
-		// TODO: the quorumLogInvariant can fail while this crashed node
-		// is coming back up and doesn't know yet how much of its log
-		// is committed.
-		// crashedNodeIdx := c.r.Int() % 2_000
-		// if crashedNodeIdx < len(c.Nodes) {
-		// 	crashNode := c.Nodes[crashedNodeIdx]
-		// 	// reboot this node
-		// 	c.Nodemap[crashNode].Raft = *NewRaft(&RaftConfig{
-		// 		ID:           crashNode,
-		// 		Client:       nil,
-		// 		Cluster:      c.Nodes,
-		// 		RestoreState: c.Nodemap[crashNode].state,
-		// 	})
-		// 	// remove any messages that would have arrived this frame,
-		// 	// to simulate the socket losing anything buffered during crash
-		// 	cur = slices.DeleteFunc(cur, func(m memEvent) bool { return m.to == crashNode })
-		// }
+		crashedNodeIdx := c.r.Int() % 2_000
+		if crashedNodeIdx < len(c.Nodes) {
+			crashNode := c.Nodes[crashedNodeIdx]
+			// reboot this node
+			c.Nodemap[crashNode].Raft = *NewRaft(&RaftConfig{
+				ID:           crashNode,
+				Client:       nil,
+				Cluster:      c.Nodes,
+				RestoreState: c.Nodemap[crashNode].state,
+			})
+			// remove any messages that would have arrived this frame,
+			// to simulate the socket losing anything buffered during crash
+			cur = slices.DeleteFunc(cur, func(m memEvent) bool { return m.to == crashNode })
+		}
 
 		if c.r.Intn(50) == 0 {
 			// do an apply to the leader

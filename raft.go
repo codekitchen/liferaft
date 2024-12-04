@@ -223,12 +223,6 @@ func (s *Raft) HandleEvent(event Event) Updates {
 		if event.Term < s.currentTerm {
 			break
 		}
-		// must persist state before responding to RPC
-		updates.Persist = &PersistentState{
-			CurrentTerm: s.currentTerm,
-			Log:         s.log,
-			VotedFor:    s.selfMember.votedFor,
-		}
 		// If message term > currentTerm, update currentTerm
 		// and convert to follower before responding
 		if event.Term > s.currentTerm {
@@ -255,6 +249,12 @@ func (s *Raft) HandleEvent(event Event) Updates {
 				ms = s.sendHeartbeat()
 			}
 			// if we aren't leader anymore, have to drop it and wait for timeout/retry
+		}
+		// must persist state before responding to RPC
+		updates.Persist = &PersistentState{
+			CurrentTerm: s.currentTerm,
+			Log:         s.log,
+			VotedFor:    s.selfMember.votedFor,
 		}
 	case *Apply:
 		if s.role == Leader {
