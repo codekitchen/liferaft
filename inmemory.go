@@ -14,6 +14,11 @@ type InMemoryCluster struct {
 	r       *rand.Rand
 
 	// the delay frames for each link
+	// TODO: this simulated network is more like UDP than TCP,
+	// so it's strictly worse in terms of the delivery behaviors
+	// that nodes might see and introduces types of badness that
+	// wouldn't be seen in a real TCP network.
+	// Needs improvement.
 	networkState map[networkLink]int
 }
 
