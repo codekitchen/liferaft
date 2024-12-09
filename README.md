@@ -18,7 +18,11 @@ This necessarily makes the code a little less idiomatic for Go -- for instance, 
 
 ## Status
 
+### Test Framework
+
 The core Raft algorithm is implemented. There is a deterministic simulation testing framework starting to take shape in [the tests](raft_test.go). The only failure modes tested so far are network latency and crashed/restarted nodes, but that has already uncovered a few bugs and helped build confidence in the implementation. The tests check seven invariants from the [etcd raft tla+ spec](https://github.com/etcd-io/raft/blob/main/tla/etcdraft.tla) after each step.
+
+### KV Store
 
 There is also a real-network wrapper which can be run in a 3-node cluster using the [Procfile](Procfile). It provides a simple CLI for a distributed key/value store with `get x` and `set x y` commands. It can be run with [overmind](https://github.com/DarthSim/overmind) and then you can use `overmind connect <procname>` to connect to a CLI and interact with it. Commands are forwarded to the leader node when necessary. It only works ephemerally right now, it doesn't save state to disk.
 
@@ -30,6 +34,18 @@ There is also a real-network wrapper which can be run in a 3-node cluster using 
 - [x] Simulate node failures/crashes
 - [ ] Simulate completely dropped messages
 - [ ] Simulate disk failures
+
+### Jepsen/Maelstrom Testing
+
+There is also a binary available for testing the raft implementation using [Maelstrom's](https://github.com/jepsen-io/maelstrom) linearizable key-value store workload.
+
+```bash
+$ go build ./cmd/maelstrom_client
+# then from the maelstrom repo, with everything set up
+$ ./maelstrom test -w lin-kv --bin ../liferaft/maelstrom_client --node-count 3 --concurrency 4n --rate 30 --time-limit 60 --nemesis partition --nemesis-interval 10 --test-count 10
+```
+
+So far, Maelstrom hasn't found any bugs in the Raft implementation, though it did find one bug in my `maelstrom_client` wrapper which [exposed a small bug in Jepsen itself](https://github.com/jepsen-io/maelstrom/issues/92).
 
 ## Testing Framework
 
@@ -44,18 +60,6 @@ But once a failing test case is found, we can re-run it at will! This is such a 
 I gave a short 5-minute presentation on finding and fixing this bug, the slides are [here in the repo](docs/first_success.md).
 
 A handful of [further bugs](docs/bugs_found.md) have been found using this DST framework.
-
-### Testing with Jepsen Maelstrom
-
-There is a binary available for testing the raft implementation using [Maelstrom's](https://github.com/jepsen-io/maelstrom) linearizable key-value store workload.
-
-```bash
-$ go build ./cmd/maelstrom_client
-# then from the maelstrom repo, with everything set up
-$ ./maelstrom test -w lin-kv --bin ../liferaft/maelstrom_client --node-count 3 --concurrency 4n --rate 30 --time-limit 60 --nemesis partition --nemesis-interval 10 --test-count 10
-```
-
-So far, Maelstrom hasn't found any bugs.
 
 ## Further Reading on Deterministic Simulation Techniques
 
@@ -80,4 +84,4 @@ I am hoping that my explorations in this repo will help me better understand wha
 
 After the fact, I found [this blog post](https://www.polarsignals.com/blog/posts/2024/05/28/mostly-dst-in-go) from Polar Signals which talks about their adventure in trying to introduce a deterministic mode to Go. They followed most of the same path I did and made many of the same discoveries and decisions. I haven't tried using WASM compiles to work around schedule nondeterminism though.
 
-Go has an experimental new [synctest](https://github.com/golang/go/issues/67434) testing package that could be of use here, it allows controlling time and waiting on goroutines to avoid nondeterminism. I need to experiment with it.
+Go has an experimental new [synctest](https://github.com/golang/go/issues/67434) testing package that could be of use here, it allows controlling time and waiting on goroutines to avoid some forms of nondeterminism. I am currently experimenting with it.
