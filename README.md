@@ -6,6 +6,8 @@ The implementation of Raft isn't really the goal here, though. Raft is being use
 
 My primary focus right now is on deterministic simulation testing of distributed systems ([DST](https://notes.eatonphil.com/2024-08-20-deterministic-simulation-testing.html)).
 
+Written for [Recurse F2'24](https://www.recurse.com).
+
 ## Current Focus
 
 The core of this Raft implementation is a "pure" deterministic state machine. Given the same state and the same next input, the library will always return the same result. This deterministic approach is key to repeatable testing.
